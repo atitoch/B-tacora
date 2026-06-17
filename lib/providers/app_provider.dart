@@ -15,11 +15,17 @@ class AppProvider extends ChangeNotifier {
   List<Habit> _habits = [];
   List<Task> _tasks = [];
   DailyNote? _dailyNote;
-  DateTime _selectedDate = DateTime.now();
 
-  // Logs históricos: habitId → lista (últimos 60 días)
-  // _logsHoy se deriva filtrando _logsHistorico — no hay estado duplicado.
+  // Normalizado a medianoche para evitar desfases de hora/DST en comparaciones.
+  DateTime _selectedDate = _midnight(DateTime.now());
+
+  // Logs históricos: habitId → lista (últimos 365 días, alineado con StreakCalculator.maxDaysBack)
   final Map<int, List<HabitLog>> _logsHistorico = {};
+
+  // Guard contra doble-tap: habitIds cuyo toggle está en vuelo.
+  final Set<int> _toggling = {};
+
+  static DateTime _midnight(DateTime d) => DateTime(d.year, d.month, d.day);
 
   List<Habit> get habits => _habits;
   List<Task> get tasks => _tasks;
@@ -37,21 +43,41 @@ class AppProvider extends ChangeNotifier {
   }
 
   int rachaActual(Habit habit) {
-    return StreakCalculator.rachaActual(habit, _logsHistorico[habit.id] ?? []);
+    return StreakCalculator.rachaActual(
+        habit, _logsHistorico[habit.id] ?? [], _selectedDate);
   }
 
   int rachaFallos(Habit habit) {
-    return StreakCalculator.rachaFallos(habit, _logsHistorico[habit.id] ?? []);
+    return StreakCalculator.rachaFallos(
+        habit, _logsHistorico[habit.id] ?? [], _selectedDate);
   }
 
   List<bool?> historial14(Habit habit) {
-    return StreakCalculator.historial(habit, _logsHistorico[habit.id] ?? [], 14);
+    return StreakCalculator.historial(
+        habit, _logsHistorico[habit.id] ?? [], 14, _selectedDate);
   }
 
   Future<void> initialize() async {
     await _notif.init();
     await _loadHabits();
     await _loadTasksAndNote();
+    await Future.wait([
+      for (final h in _habits)
+        _notif.scheduleHabitNotification(
+          habit: h,
+          fallosConsecutivos: rachaFallos(h),
+        ),
+    ]);
+  }
+
+  /// Refresca la fecha de referencia cuando la app vuelve a foreground.
+  /// Evita que la app muestre "ayer" si estuvo abierta de noche.
+  Future<void> refreshDate() async {
+    final today = _midnight(DateTime.now());
+    if (!du.isSameDay(_selectedDate, today)) {
+      _selectedDate = today;
+      await _loadTasksAndNote();
+    }
   }
 
   Future<void> _loadHabits() async {
@@ -60,8 +86,8 @@ class AppProvider extends ChangeNotifier {
 
     if (_habits.isNotEmpty) {
       final ids = _habits.map((h) => h.id!).toList();
-      // Una sola query para todos los hábitos en lugar de 2×N queries seriales.
-      final batch = await _db.getLogsForAllHabits(ids, ultimosDias: 60);
+      final batch = await _db.getLogsForAllHabits(
+          ids, ultimosDias: StreakCalculator.maxDaysBack);
       _logsHistorico.addAll(batch);
     }
 
@@ -75,40 +101,53 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> toggleHabit(Habit habit, bool completado) async {
-    final existing = logDeHoy(habit.id!);
-    final log = HabitLog(
-      id: existing?.id,
-      habitId: habit.id!,
-      fecha: _selectedDate,
-      completado: completado,
-      nota: existing?.nota, // preservar nota si existe
-    );
-    await _db.upsertLog(log);
+    final id = habit.id!;
+    // Guard contra doble-tap concurrente sobre el mismo hábito.
+    if (_toggling.contains(id)) return;
+    _toggling.add(id);
 
-    // Parchear en memoria sin recargar 60 días desde DB.
-    final list = _logsHistorico[habit.id!] ??= [];
-    final idx = list.indexWhere((l) => du.isSameDay(l.fecha, _selectedDate));
-    if (idx >= 0) {
-      list[idx] = log;
-    } else {
-      list.insert(0, log);
+    try {
+      final existing = logDeHoy(id);
+      final log = HabitLog(
+        id: existing?.id,
+        habitId: id,
+        fecha: _selectedDate,
+        completado: completado,
+        nota: existing?.nota,
+      );
+      await _db.upsertLog(log);
+
+      final list = _logsHistorico[id] ??= [];
+      final idx = list.indexWhere((l) => du.isSameDay(l.fecha, _selectedDate));
+      if (idx >= 0) {
+        list[idx] = log;
+      } else {
+        list.insert(0, log);
+      }
+
+      final fallos = StreakCalculator.rachaFallos(
+        habit,
+        _logsHistorico[id] ?? [],
+        _selectedDate,
+      );
+      await _notif.scheduleHabitNotification(
+        habit: habit,
+        fallosConsecutivos: fallos,
+      );
+
+      notifyListeners();
+    } finally {
+      _toggling.remove(id);
     }
-
-    final fallos = StreakCalculator.rachaFallos(
-      habit,
-      _logsHistorico[habit.id!] ?? [],
-    );
-    await _notif.scheduleHabitNotification(
-      habit: habit,
-      fallosConsecutivos: fallos,
-    );
-
-    notifyListeners();
   }
 
   Future<void> addHabit(Habit habit) async {
-    final id = await _db.insertHabit(habit);
-    final h = habit.copyWith(id: id);
+    final today = _midnight(DateTime.now());
+    final habitConFecha = habit.fechaCreacion == null
+        ? habit.copyWith(fechaCreacion: today) // normalizado a medianoche
+        : habit;
+    final id = await _db.insertHabit(habitConFecha);
+    final h = habitConFecha.copyWith(id: id);
     _habits.add(h);
     _logsHistorico[id] = [];
     await _notif.scheduleHabitNotification(habit: h, fallosConsecutivos: 0);
@@ -136,7 +175,7 @@ class AppProvider extends ChangeNotifier {
   Future<void> addTask(String nombre) async {
     final t = Task(nombre: nombre, fecha: _selectedDate);
     final id = await _db.insertTask(t);
-    _tasks.add(Task(id: id, nombre: nombre, fecha: _selectedDate));
+    _tasks.add(t.copyWith(id: id));
     notifyListeners();
   }
 
@@ -167,8 +206,7 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> selectDate(DateTime date) async {
-    _selectedDate = date;
-    await _loadHabits();
+    _selectedDate = _midnight(date); // siempre normalizado a medianoche
     await _loadTasksAndNote();
   }
 
@@ -183,15 +221,11 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> completeOnboarding(TimeOfDay horaDespertar) async {
-    // seedHabits es atómica (transacción). onboarding_done se escribe después,
-    // así que isFirstRun() = true solo si el seed no completó.
     await _db.seedHabits(horaDespertar);
-    await _db.setPref('onboarding_done', '1');
     await _db.setPref(
         'hora_despertar', '${horaDespertar.hour}:${horaDespertar.minute}');
     await _loadHabits();
 
-    // Programar notificaciones en paralelo.
     await Future.wait([
       for (final h in _habits)
         _notif.scheduleHabitNotification(habit: h, fallosConsecutivos: 0),

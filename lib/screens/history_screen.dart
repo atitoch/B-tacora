@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../models/habit.dart';
+import '../utils/date_utils.dart' as du;
 
 class HistoryScreen extends StatelessWidget {
   const HistoryScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final habits = context.watch<AppProvider>().habits;
+    final provider = context.watch<AppProvider>();
+    final habits = provider.habits;
 
     if (habits.isEmpty) {
       return const Center(child: Text('Sin hábitos registrados.'));
@@ -17,15 +20,25 @@ class HistoryScreen extends StatelessWidget {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: habits.length,
-      itemBuilder: (ctx, i) => _HabitHistoryCard(habit: habits[i]),
+      itemBuilder: (ctx, i) => _HabitHistoryCard(
+        habit: habits[i],
+        isToday: du.isSameDay(provider.selectedDate, DateTime.now()),
+        selectedDate: provider.selectedDate,
+      ),
     );
   }
 }
 
 class _HabitHistoryCard extends StatelessWidget {
   final Habit habit;
+  final bool isToday;
+  final DateTime selectedDate;
 
-  const _HabitHistoryCard({required this.habit});
+  const _HabitHistoryCard({
+    required this.habit,
+    required this.isToday,
+    required this.selectedDate,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -67,12 +80,17 @@ class _HabitHistoryCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('14 días atrás',
+                Text(
+                    DateFormat('d MMM', 'es')
+                        .format(selectedDate.subtract(const Duration(days: 13))),
                     style: TextStyle(
                         fontSize: 10,
                         color:
                             theme.colorScheme.onSurface.withValues(alpha: 0.4))),
-                Text('Hoy',
+                Text(
+                    isToday
+                        ? 'Hoy'
+                        : DateFormat('d MMM', 'es').format(selectedDate),
                     style: TextStyle(
                         fontSize: 10,
                         color:

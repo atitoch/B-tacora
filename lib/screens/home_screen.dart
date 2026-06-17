@@ -33,13 +33,29 @@ class _HomeScreenState extends State<HomeScreen> {
     HistoryScreen(),
   ];
 
+  Future<void> _pickDate(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final now = DateTime.now();
+    final minDate = now.subtract(Duration(days: 365));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: provider.selectedDate,
+      firstDate: minDate,
+      lastDate: now,
+    );
+    if (picked != null && context.mounted) {
+      await provider.selectDate(picked);
+    }
+  }
+
   Future<void> _showNoteDialog(BuildContext context) async {
     final provider = context.read<AppProvider>();
     final existing = provider.dailyNote;
     final textCtrl = TextEditingController(text: existing?.texto ?? '');
     int? energia = existing?.nivelEnergia;
 
-    await showModalBottomSheet(
+    try {
+      await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
@@ -115,13 +131,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+    } finally {
+      textCtrl.dispose();
+    }
   }
 
   /// Escribe el JSON a un archivo temporal y abre el share sheet del SO.
   Future<void> _exportData(BuildContext context) async {
     final provider = context.read<AppProvider>();
+    // Capturar navigator y messenger antes de cualquier await para evitar
+    // usar context después de que el widget pueda haberse desmontado.
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
 
-    // Mostrar indicador de carga mientras se prepara el archivo.
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -134,20 +156,14 @@ class _HomeScreenState extends State<HomeScreen> {
       final fecha = du.dateKey(DateTime.now());
       final file = File('${dir.path}/btacora_backup_$fecha.json');
       await file.writeAsString(json, flush: true);
-
-      if (!context.mounted) return;
-      Navigator.of(context).pop(); // cerrar spinner
-
+      navigator.pop(); // cerrar spinner — siempre se ejecuta, mounted o no
       await Share.shareXFiles(
         [XFile(file.path, mimeType: 'application/json')],
         subject: 'B-tácora backup $fecha',
       );
     } catch (e) {
-      if (!context.mounted) return;
-      Navigator.of(context).pop(); // cerrar spinner
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al exportar: $e')),
-      );
+      navigator.pop(); // cerrar spinner
+      messenger.showSnackBar(SnackBar(content: Text('Error al exportar: $e')));
     }
   }
 
@@ -159,26 +175,50 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'B-tácora',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-            ),
-            Text(
-              esHoy ? 'Hoy, $fecha' : fecha,
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.6),
+        title: GestureDetector(
+          onTap: () => _pickDate(context),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'B-tácora',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
               ),
-            ),
-          ],
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    esHoy ? 'Hoy, $fecha' : fecha,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.expand_more,
+                    size: 14,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.4),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
         actions: [
+          if (!esHoy)
+            IconButton(
+              icon: const Icon(Icons.today),
+              tooltip: 'Ir a hoy',
+              onPressed: () =>
+                  context.read<AppProvider>().selectDate(DateTime.now()),
+            ),
           if (_tab == 0)
             IconButton(
               icon: const Icon(Icons.edit_note),

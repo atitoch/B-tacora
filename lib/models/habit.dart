@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/date_utils.dart' as du;
 
 enum FrecuenciaTipo { diario, diasEspecificos }
 
@@ -9,6 +10,7 @@ class Habit {
   final List<int>? diasSemana; // 1=Lun … 7=Dom
   final TimeOfDay? horaObjetivo;
   final bool activo;
+  final DateTime? fechaCreacion;
 
   Habit({
     this.id,
@@ -17,6 +19,7 @@ class Habit {
     this.diasSemana,
     this.horaObjetivo,
     this.activo = true,
+    this.fechaCreacion,
   });
 
   bool tocaHoy(DateTime fecha) {
@@ -35,6 +38,7 @@ class Habit {
       'hora_h': horaObjetivo?.hour,
       'hora_m': horaObjetivo?.minute,
       'activo': activo ? 1 : 0,
+      'fecha_creacion': fechaCreacion != null ? du.dateKey(fechaCreacion!) : null,
     };
   }
 
@@ -43,14 +47,18 @@ class Habit {
       id: m['id'] as int?,
       nombre: m['nombre'] as String,
       tipoFrecuencia: FrecuenciaTipo.values[m['tipo_frecuencia'] as int],
-      diasSemana: (m['dias_semana'] as String?)
-          ?.split(',')
-          .map(int.parse)
-          .toList(),
+      diasSemana: () {
+        final raw = m['dias_semana'] as String?;
+        if (raw == null || raw.isEmpty) return null;
+        return raw.split(',').map(int.parse).toList();
+      }(),
       horaObjetivo: (m['hora_h'] != null && m['hora_m'] != null)
           ? TimeOfDay(hour: m['hora_h'] as int, minute: m['hora_m'] as int)
           : null,
       activo: (m['activo'] as int) == 1,
+      fechaCreacion: (m['fecha_creacion'] as String?) != null
+          ? DateTime.parse(m['fecha_creacion'] as String)
+          : null,
     );
   }
 
@@ -61,6 +69,7 @@ class Habit {
     List<int>? diasSemana,
     TimeOfDay? horaObjetivo,
     bool? activo,
+    DateTime? fechaCreacion,
   }) {
     return Habit(
       id: id ?? this.id,
@@ -69,6 +78,7 @@ class Habit {
       diasSemana: diasSemana ?? this.diasSemana,
       horaObjetivo: horaObjetivo ?? this.horaObjetivo,
       activo: activo ?? this.activo,
+      fechaCreacion: fechaCreacion ?? this.fechaCreacion,
     );
   }
 }

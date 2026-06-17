@@ -31,9 +31,9 @@ class Task {
     );
   }
 
-  Task copyWith({bool? completada, String? nombre}) {
+  Task copyWith({int? id, bool? completada, String? nombre}) {
     return Task(
-      id: id,
+      id: id ?? this.id,
       nombre: nombre ?? this.nombre,
       fecha: fecha,
       completada: completada ?? this.completada,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import '../models/habit.dart';
@@ -12,12 +13,23 @@ class NotificationService {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
-  // Cache del último body programado por habitId para evitar reschedules no-op.
-  final Map<int, String> _lastBody = {};
+  // Cache de la última clave programada por habitId: body + hora + días.
+  // Incluir hora/días evita que un cambio de horario no reprograme.
+  final Map<int, String> _lastScheduleKey = {};
 
   Future<void> init() async {
     if (_initialized) return;
     tz.initializeTimeZones();
+
+    // Establecer la timezone local del dispositivo.
+    // Algunos Android devuelven identificadores no estándar (ej. "Etc/Unknown");
+    // en ese caso caemos a UTC para evitar crash.
+    try {
+      final tzInfo = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(tzInfo.identifier));
+    } catch (_) {
+      tz.setLocalLocation(tz.UTC);
+    }
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings(
@@ -29,6 +41,13 @@ class NotificationService {
     await _plugin.initialize(
       const InitializationSettings(android: android, iOS: ios),
     );
+
+    // Android 13+ requiere solicitud explícita en runtime (POST_NOTIFICATIONS).
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+
     _initialized = true;
   }
 
@@ -36,15 +55,33 @@ class NotificationService {
     required Habit habit,
     required int fallosConsecutivos,
   }) async {
-    if (habit.id == null || habit.horaObjetivo == null) return;
+    if (habit.id == null) return;
+
+    // Hábito inactivo: cancelar notificaciones pendientes y salir.
+    if (!habit.activo) {
+      await cancelHabitNotifications(habit.id!);
+      return;
+    }
+
+    if (habit.horaObjetivo == null) {
+      // Sin hora objetivo no hay notificación que programar;
+      // cancelar cualquier notificación previa que pudiera haber quedado.
+      await cancelHabitNotifications(habit.id!);
+      return;
+    }
 
     final body = fallosConsecutivos >= 3
         ? _copyConfronta(habit.nombre, fallosConsecutivos)
         : _copyNeutro(habit.nombre);
 
-    // Dirty-check: no cancelar/reprogramar si el copy ya es el mismo.
-    if (_lastBody[habit.id] == body) return;
-    _lastBody[habit.id!] = body;
+    // Dirty-check: incluir hora y días para detectar cambios de horario.
+    final hora = habit.horaObjetivo!;
+    final dias = habit.tipoFrecuencia == FrecuenciaTipo.diario
+        ? 'daily'
+        : (habit.diasSemana ?? []).join(',');
+    final scheduleKey = '${hora.hour}:${hora.minute}@$dias|$body';
+    if (_lastScheduleKey[habit.id] == scheduleKey) return;
+    _lastScheduleKey[habit.id!] = scheduleKey;
 
     await cancelHabitNotifications(habit.id!);
 
@@ -66,14 +103,14 @@ class NotificationService {
   }
 
   Future<void> cancelHabitNotifications(int habitId) async {
-    _lastBody.remove(habitId);
+    _lastScheduleKey.remove(habitId);
     await Future.wait([
       for (int dia = 1; dia <= 7; dia++) _plugin.cancel(_notifId(habitId, dia)),
     ]);
   }
 
   Future<void> cancelAll() async {
-    _lastBody.clear();
+    _lastScheduleKey.clear();
     await _plugin.cancelAll();
   }
 

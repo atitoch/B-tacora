@@ -24,9 +24,18 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'btacora.db'),
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        'ALTER TABLE habits ADD COLUMN fecha_creacion TEXT',
+      );
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -38,7 +47,8 @@ class DatabaseService {
         dias_semana TEXT,
         hora_h INTEGER,
         hora_m INTEGER,
-        activo INTEGER NOT NULL DEFAULT 1
+        activo INTEGER NOT NULL DEFAULT 1,
+        fecha_creacion TEXT
       )
     ''');
 
@@ -120,8 +130,10 @@ class DatabaseService {
 
   Future<void> deleteHabit(int id) async {
     final d = await db;
-    await d.delete('habits', where: 'id = ?', whereArgs: [id]);
-    await d.delete('habit_logs', where: 'habit_id = ?', whereArgs: [id]);
+    await d.transaction((txn) async {
+      await txn.delete('habits', where: 'id = ?', whereArgs: [id]);
+      await txn.delete('habit_logs', where: 'habit_id = ?', whereArgs: [id]);
+    });
   }
 
   // ─── HabitLogs ───────────────────────────────────────────────────────────
@@ -246,19 +258,21 @@ class DatabaseService {
 
   Future<Map<String, dynamic>> exportAll() async {
     final d = await db;
-    final habits = await d.query('habits');
-    final logs = await d.query('habit_logs');
-    final tasks = await d.query('tasks');
-    final notes = await d.query('daily_notes');
-
-    return {
-      'exported_at': DateTime.now().toIso8601String(),
-      'version': 1,
-      'habits': habits,
-      'habit_logs': logs,
-      'tasks': tasks,
-      'daily_notes': notes,
-    };
+    // Transacción de solo-lectura: snapshot consistente de todas las tablas.
+    return d.transaction((txn) async {
+      final habits = await txn.query('habits');
+      final logs = await txn.query('habit_logs');
+      final tasks = await txn.query('tasks');
+      final notes = await txn.query('daily_notes');
+      return {
+        'exported_at': DateTime.now().toIso8601String(),
+        'version': 1,
+        'habits': habits,
+        'habit_logs': logs,
+        'tasks': tasks,
+        'daily_notes': notes,
+      };
+    });
   }
 
   String exportToJson(Map<String, dynamic> data) =>
@@ -272,39 +286,58 @@ class DatabaseService {
     final horaEjercicio = const TimeOfDay(hour: 7, minute: 0);
     final horaIngles = const TimeOfDay(hour: 21, minute: 0);
 
+    final hoy = DateTime.now();
     final seeds = [
       Habit(
         nombre: 'Hora de pie',
         tipoFrecuencia: FrecuenciaTipo.diario,
         horaObjetivo: horaDespertar,
+        fechaCreacion: hoy,
       ),
       Habit(
         nombre: 'Inglés',
         tipoFrecuencia: FrecuenciaTipo.diasEspecificos,
         diasSemana: [1, 2, 3, 4],
         horaObjetivo: horaIngles,
+        fechaCreacion: hoy,
       ),
       Habit(
         nombre: 'Ejercicio',
         tipoFrecuencia: FrecuenciaTipo.diasEspecificos,
         diasSemana: [1, 3, 6],
         horaObjetivo: horaEjercicio,
+        fechaCreacion: hoy,
       ),
       Habit(
         nombre: '3 comidas completas',
         tipoFrecuencia: FrecuenciaTipo.diario,
+        fechaCreacion: hoy,
       ),
       Habit(
         nombre: 'Avanzar proyecto personal',
         tipoFrecuencia: FrecuenciaTipo.diario,
+        fechaCreacion: hoy,
       ),
     ];
 
     final d = await db;
+    // Seed + onboarding_done en una sola transacción: si el proceso muere
+    // a la mitad, ambos se revierten y el onboarding vuelve a correr limpio.
     await d.transaction((txn) async {
-      for (final h in seeds) {
-        await txn.insert('habits', h.toMap());
+      final existing = await txn.query('habits', limit: 1);
+      // Solo insertar seeds si no existen (guard contra crash-retry).
+      // onboarding_done se escribe SIEMPRE dentro de la misma transacción
+      // para corregir el caso en que hay hábitos pero falta el pref.
+      if (existing.isEmpty) {
+        for (final h in seeds) {
+          await txn.insert('habits', h.toMap());
+        }
       }
+      await txn.insert(
+        'prefs',
+        {'key': 'onboarding_done', 'value': '1'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     });
   }
 }

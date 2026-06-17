@@ -24,6 +24,7 @@ class BtacoraApp extends StatelessWidget {
         theme: _buildTheme(Brightness.light),
         darkTheme: _buildTheme(Brightness.dark),
         themeMode: ThemeMode.system,
+        locale: const Locale('es'),
         home: const _AppRoot(),
       ),
     );
@@ -59,14 +60,30 @@ class _AppRoot extends StatefulWidget {
   State<_AppRoot> createState() => _AppRootState();
 }
 
-class _AppRootState extends State<_AppRoot> {
+class _AppRootState extends State<_AppRoot> with WidgetsBindingObserver {
   bool _loading = true;
   bool _firstRun = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Refresca la fecha cuando la app vuelve a foreground tras estar en background.
+  /// Corrige el caso en que la app queda abierta de un día para el otro.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      context.read<AppProvider>().refreshDate();
+    }
   }
 
   Future<void> _init() async {

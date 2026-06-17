@@ -3,20 +3,29 @@ import '../models/habit_log.dart';
 import '../utils/date_utils.dart' as du;
 
 class StreakCalculator {
-  static const int _maxDaysBack = 365;
+  // Público para que app_provider cargue exactamente la misma ventana de logs.
+  static const int maxDaysBack = 365;
 
-  static int rachaActual(Habit habit, List<HabitLog> logs) {
+  static int rachaActual(
+      Habit habit, List<HabitLog> logs, DateTime referenceDate) {
     final logMap = {for (final l in logs) du.dateKey(l.fecha): l};
     int racha = 0;
-    var dia = DateTime.now();
+    var dia = referenceDate;
 
-    for (int i = 0; i < _maxDaysBack; i++) {
+    for (int i = 0; i < maxDaysBack; i++) {
       if (!habit.tocaHoy(dia)) {
         dia = dia.subtract(const Duration(days: 1));
         continue;
       }
       final log = logMap[du.dateKey(dia)];
-      if (log == null || !log.completado) break;
+      if (log == null || !log.completado) {
+        // La fecha de referencia todavía puede completarse — no rompe la racha.
+        if (du.isSameDay(dia, referenceDate)) {
+          dia = dia.subtract(const Duration(days: 1));
+          continue;
+        }
+        break;
+      }
       racha++;
       dia = dia.subtract(const Duration(days: 1));
     }
@@ -24,17 +33,21 @@ class StreakCalculator {
     return racha;
   }
 
-  /// Fallos consecutivos contados hasta ayer (hoy todavía puede completarse).
-  static int rachaFallos(Habit habit, List<HabitLog> logs) {
+  /// Fallos consecutivos contados hasta el día anterior a [referenceDate].
+  static int rachaFallos(
+      Habit habit, List<HabitLog> logs, DateTime referenceDate) {
     final logMap = {for (final l in logs) du.dateKey(l.fecha): l};
     int fallos = 0;
-    var dia = DateTime.now().subtract(const Duration(days: 1));
+    var dia = referenceDate.subtract(const Duration(days: 1));
 
-    for (int i = 0; i < _maxDaysBack; i++) {
+    for (int i = 0; i < maxDaysBack; i++) {
       if (!habit.tocaHoy(dia)) {
         dia = dia.subtract(const Duration(days: 1));
         continue;
       }
+      // No contar días anteriores a la creación del hábito.
+      if (habit.fechaCreacion != null &&
+          dia.isBefore(habit.fechaCreacion!)) break;
       final log = logMap[du.dateKey(dia)];
       if (log != null && log.completado) break;
       fallos++;
@@ -45,16 +58,24 @@ class StreakCalculator {
     return fallos;
   }
 
-  static List<bool?> historial(Habit habit, List<HabitLog> logs, int dias) {
+  static List<bool?> historial(
+      Habit habit, List<HabitLog> logs, int dias, DateTime referenceDate) {
     final logMap = {for (final l in logs) du.dateKey(l.fecha): l};
     final result = <bool?>[];
     for (int i = dias - 1; i >= 0; i--) {
-      final dia = DateTime.now().subtract(Duration(days: i));
+      final dia = referenceDate.subtract(Duration(days: i));
+      // Días anteriores a la creación: no aplicable.
+      if (habit.fechaCreacion != null && dia.isBefore(habit.fechaCreacion!)) {
+        result.add(null);
+        continue;
+      }
       if (!habit.tocaHoy(dia)) {
         result.add(null);
       } else {
         final log = logMap[du.dateKey(dia)];
-        result.add(log?.completado);
+        result.add(du.isSameDay(dia, referenceDate)
+            ? log?.completado
+            : (log?.completado ?? false));
       }
     }
     return result;

@@ -50,12 +50,19 @@ class _AddTaskBarState extends State<_AddTaskBar> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
-    context.read<AppProvider>().addTask(text);
     _ctrl.clear();
     _focus.requestFocus();
+    try {
+      await context.read<AppProvider>().addTask(text);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error al guardar tarea: $e')));
+      }
+    }
   }
 
   @override

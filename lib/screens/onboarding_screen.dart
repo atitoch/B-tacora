@@ -24,11 +24,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _continuar() async {
     setState(() => _loading = true);
-    await context.read<AppProvider>().completeOnboarding(_horaDespertar);
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-      );
+    try {
+      await context.read<AppProvider>().completeOnboarding(_horaDespertar);
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al iniciar: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
