@@ -38,8 +38,7 @@ class HabitTile extends StatelessWidget {
         leading: Checkbox(
           value: completado,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-          onChanged: (v) =>
-              provider.toggleHabit(habit, v ?? false),
+          onChanged: (v) => provider.toggleHabit(habit, v ?? false),
         ),
         title: Text(
           habit.nombre,
@@ -51,13 +50,13 @@ class HabitTile extends StatelessWidget {
                 : null,
           ),
         ),
-        subtitle: _buildSubtitle(theme, fallos),
+        subtitle: _buildSubtitle(context, theme, fallos),
         trailing: StreakBadge(racha: racha),
       ),
     );
   }
 
-  Widget? _buildSubtitle(ThemeData theme, int fallos) {
+  Widget? _buildSubtitle(BuildContext context, ThemeData theme, int fallos) {
     if (fallos >= 3) {
       return Text(
         'Llevas $fallos días sin esto',
@@ -69,12 +68,10 @@ class HabitTile extends StatelessWidget {
       );
     }
     if (habit.horaObjetivo != null) {
-      final h = habit.horaObjetivo!;
-      final ampm = h.hour >= 12 ? 'PM' : 'AM';
-      final hh = h.hourOfPeriod == 0 ? 12 : h.hourOfPeriod;
-      final mm = h.minute.toString().padLeft(2, '0');
+      // Respeta la config de 12h/24h del dispositivo.
+      final horaStr = habit.horaObjetivo!.format(context);
       return Text(
-        '$hh:$mm $ampm',
+        horaStr,
         style: TextStyle(
           fontSize: 12,
           color: theme.colorScheme.onSurface.withValues(alpha: 0.5),

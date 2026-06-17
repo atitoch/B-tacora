@@ -1,7 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart' show Share, XFile;
 import '../providers/app_provider.dart';
+import '../utils/date_utils.dart' as du;
 import 'habits_screen.dart';
 import 'tasks_screen.dart';
 import 'history_screen.dart';
@@ -32,8 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _showNoteDialog(BuildContext context) async {
     final provider = context.read<AppProvider>();
     final existing = provider.dailyNote;
-    final textCtrl =
-        TextEditingController(text: existing?.texto ?? '');
+    final textCtrl = TextEditingController(text: existing?.texto ?? '');
     int? energia = existing?.nivelEnergia;
 
     await showModalBottomSheet(
@@ -64,8 +67,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              Text('Energía',
-                  style: Theme.of(ctx).textTheme.labelMedium),
+              Text('Energía', style: Theme.of(ctx).textTheme.labelMedium),
               const SizedBox(height: 8),
               Row(
                 children: List.generate(
@@ -115,56 +117,45 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _showExportDialog(BuildContext context) async {
+  /// Escribe el JSON a un archivo temporal y abre el share sheet del SO.
+  Future<void> _exportData(BuildContext context) async {
     final provider = context.read<AppProvider>();
-    final json = await provider.exportJson();
 
-    if (!context.mounted) return;
-
+    // Mostrar indicador de carga mientras se prepara el archivo.
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Exportar datos'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-                'Tus datos están listos. Copia el JSON o compártelo.'),
-            const SizedBox(height: 12),
-            Container(
-              height: 180,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: SingleChildScrollView(
-                child: SelectableText(
-                  json.length > 2000
-                      ? '${json.substring(0, 2000)}\n\n... (${json.length} caracteres total)'
-                      : json,
-                  style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cerrar'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
     );
+
+    try {
+      final json = await provider.exportJson();
+      final dir = await getTemporaryDirectory();
+      final fecha = du.dateKey(DateTime.now());
+      final file = File('${dir.path}/btacora_backup_$fecha.json');
+      await file.writeAsString(json, flush: true);
+
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // cerrar spinner
+
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/json')],
+        subject: 'B-tácora backup $fecha',
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // cerrar spinner
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al exportar: $e')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final fecha = DateFormat('EEE d MMM', 'es').format(provider.selectedDate);
-    final esHoy = _isToday(provider.selectedDate);
+    final esHoy = du.isSameDay(provider.selectedDate, DateTime.now());
 
     return Scaffold(
       appBar: AppBar(
@@ -199,14 +190,14 @@ class _HomeScreenState extends State<HomeScreen> {
               const PopupMenuItem(
                 value: 'export',
                 child: ListTile(
-                  leading: Icon(Icons.download_outlined),
+                  leading: Icon(Icons.ios_share_outlined),
                   title: Text('Exportar datos'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
             ],
             onSelected: (v) {
-              if (v == 'export') _showExportDialog(context);
+              if (v == 'export') _exportData(context);
             },
           ),
         ],
@@ -218,10 +209,5 @@ class _HomeScreenState extends State<HomeScreen> {
         destinations: _tabs,
       ),
     );
-  }
-
-  bool _isToday(DateTime d) {
-    final now = DateTime.now();
-    return d.year == now.year && d.month == now.month && d.day == now.day;
   }
 }

@@ -12,6 +12,9 @@ class NotificationService {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
+  // Cache del último body programado por habitId para evitar reschedules no-op.
+  final Map<int, String> _lastBody = {};
+
   Future<void> init() async {
     if (_initialized) return;
     tz.initializeTimeZones();
@@ -35,36 +38,42 @@ class NotificationService {
   }) async {
     if (habit.id == null || habit.horaObjetivo == null) return;
 
-    await cancelHabitNotifications(habit.id!);
-
-    final title = 'B-tácora';
     final body = fallosConsecutivos >= 3
         ? _copyConfronta(habit.nombre, fallosConsecutivos)
         : _copyNeutro(habit.nombre);
 
+    // Dirty-check: no cancelar/reprogramar si el copy ya es el mismo.
+    if (_lastBody[habit.id] == body) return;
+    _lastBody[habit.id!] = body;
+
+    await cancelHabitNotifications(habit.id!);
+
     final diasObjetivo = habit.tipoFrecuencia == FrecuenciaTipo.diario
-        ? List.generate(7, (i) => i + 1) // todos
+        ? List.generate(7, (i) => i + 1)
         : (habit.diasSemana ?? []);
 
-    for (final dia in diasObjetivo) {
-      final notifId = _notifId(habit.id!, dia);
-      await _scheduleWeekly(
-        id: notifId,
-        title: title,
-        body: body,
-        diaSemana: dia,
-        hora: habit.horaObjetivo!,
-      );
-    }
+    // Programar todos los días en paralelo.
+    await Future.wait([
+      for (final dia in diasObjetivo)
+        _scheduleWeekly(
+          id: _notifId(habit.id!, dia),
+          title: 'B-tácora',
+          body: body,
+          diaSemana: dia,
+          hora: habit.horaObjetivo!,
+        ),
+    ]);
   }
 
   Future<void> cancelHabitNotifications(int habitId) async {
-    for (int dia = 1; dia <= 7; dia++) {
-      await _plugin.cancel(_notifId(habitId, dia));
-    }
+    _lastBody.remove(habitId);
+    await Future.wait([
+      for (int dia = 1; dia <= 7; dia++) _plugin.cancel(_notifId(habitId, dia)),
+    ]);
   }
 
   Future<void> cancelAll() async {
+    _lastBody.clear();
     await _plugin.cancelAll();
   }
 
@@ -72,11 +81,11 @@ class NotificationService {
     required int id,
     required String title,
     required String body,
-    required int diaSemana, // 1=Lun, 7=Dom (dart weekday)
+    required int diaSemana,
     required TimeOfDay hora,
   }) async {
     final now = tz.TZDateTime.now(tz.local);
-    var scheduled = _nextWeekday(now, diaSemana, hora);
+    final scheduled = _nextWeekday(now, diaSemana, hora);
 
     await _plugin.zonedSchedule(
       id,
@@ -110,9 +119,12 @@ class NotificationService {
       hora.hour,
       hora.minute,
     );
-    // Avanzar hasta el día de la semana correcto
-    while (candidate.weekday != targetWeekday ||
-        candidate.isBefore(from.add(const Duration(seconds: 5)))) {
+    // Avanzar al día de la semana correcto; máx 7 iteraciones.
+    for (int i = 0; i < 8; i++) {
+      if (candidate.weekday == targetWeekday &&
+          !candidate.isBefore(from.add(const Duration(seconds: 5)))) {
+        return candidate;
+      }
       candidate = candidate.add(const Duration(days: 1));
     }
     return candidate;

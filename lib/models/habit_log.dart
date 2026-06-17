@@ -1,3 +1,5 @@
+import '../utils/date_utils.dart' as du;
+
 class HabitLog {
   final int? id;
   final int habitId;
@@ -17,7 +19,7 @@ class HabitLog {
     return {
       if (id != null) 'id': id,
       'habit_id': habitId,
-      'fecha': _dateKey(fecha),
+      'fecha': du.dateKey(fecha),
       'completado': completado ? 1 : 0,
       'nota': nota,
     };
@@ -33,8 +35,13 @@ class HabitLog {
     );
   }
 
-  static String _dateKey(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
+  HabitLog copyWith({bool? completado, String? nota}) {
+    return HabitLog(
+      id: id,
+      habitId: habitId,
+      fecha: fecha,
+      completado: completado ?? this.completado,
+      nota: nota ?? this.nota,
+    );
+  }
 }

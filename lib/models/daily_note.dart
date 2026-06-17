@@ -1,3 +1,5 @@
+import '../utils/date_utils.dart' as du;
+
 class DailyNote {
   final int? id;
   final DateTime fecha;
@@ -14,7 +16,7 @@ class DailyNote {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
-      'fecha': _dateKey(fecha),
+      'fecha': du.dateKey(fecha),
       'texto': texto,
       'nivel_energia': nivelEnergia,
     };
@@ -28,9 +30,4 @@ class DailyNote {
       nivelEnergia: m['nivel_energia'] as int?,
     );
   }
-
-  static String _dateKey(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
 }

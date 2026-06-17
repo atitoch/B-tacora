@@ -1,3 +1,5 @@
+import '../utils/date_utils.dart' as du;
+
 class Task {
   final int? id;
   final String nombre;
@@ -15,7 +17,7 @@ class Task {
     return {
       if (id != null) 'id': id,
       'nombre': nombre,
-      'fecha': _dateKey(fecha),
+      'fecha': du.dateKey(fecha),
       'completada': completada ? 1 : 0,
     };
   }
@@ -37,9 +39,4 @@ class Task {
       completada: completada ?? this.completada,
     );
   }
-
-  static String _dateKey(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
 }

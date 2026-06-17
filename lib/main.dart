@@ -25,10 +25,6 @@ class BtacoraApp extends StatelessWidget {
         darkTheme: _buildTheme(Brightness.dark),
         themeMode: ThemeMode.system,
         home: const _AppRoot(),
-        routes: {
-          '/home': (_) => const HomeScreen(),
-          '/onboarding': (_) => const OnboardingScreen(),
-        },
       ),
     );
   }

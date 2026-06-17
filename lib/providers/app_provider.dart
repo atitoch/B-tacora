@@ -6,6 +6,7 @@ import '../models/daily_note.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../services/streak_calculator.dart';
+import '../utils/date_utils.dart' as du;
 
 class AppProvider extends ChangeNotifier {
   final _db = DatabaseService();
@@ -16,9 +17,8 @@ class AppProvider extends ChangeNotifier {
   DailyNote? _dailyNote;
   DateTime _selectedDate = DateTime.now();
 
-  // Logs cargados para la fecha seleccionada: habitId -> HabitLog?
-  final Map<int, HabitLog?> _logsHoy = {};
-  // Logs históricos: habitId -> lista
+  // Logs históricos: habitId → lista (últimos 60 días)
+  // _logsHoy se deriva filtrando _logsHistorico — no hay estado duplicado.
   final Map<int, List<HabitLog>> _logsHistorico = {};
 
   List<Habit> get habits => _habits;
@@ -29,21 +29,23 @@ class AppProvider extends ChangeNotifier {
   List<Habit> get habitsDeLaFecha =>
       _habits.where((h) => h.tocaHoy(_selectedDate)).toList();
 
-  HabitLog? logDeHoy(int habitId) => _logsHoy[habitId];
+  HabitLog? logDeHoy(int habitId) {
+    final key = du.dateKey(_selectedDate);
+    return _logsHistorico[habitId]
+        ?.where((l) => du.dateKey(l.fecha) == key)
+        .firstOrNull;
+  }
 
   int rachaActual(Habit habit) {
-    final logs = _logsHistorico[habit.id] ?? [];
-    return StreakCalculator.rachaActual(habit, logs);
+    return StreakCalculator.rachaActual(habit, _logsHistorico[habit.id] ?? []);
   }
 
   int rachaFallos(Habit habit) {
-    final logs = _logsHistorico[habit.id] ?? [];
-    return StreakCalculator.rachaFallos(habit, logs);
+    return StreakCalculator.rachaFallos(habit, _logsHistorico[habit.id] ?? []);
   }
 
   List<bool?> historial14(Habit habit) {
-    final logs = _logsHistorico[habit.id] ?? [];
-    return StreakCalculator.historial(habit, logs, 14);
+    return StreakCalculator.historial(habit, _logsHistorico[habit.id] ?? [], 14);
   }
 
   Future<void> initialize() async {
@@ -54,16 +56,15 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _loadHabits() async {
     _habits = await _db.getHabits();
-    _logsHoy.clear();
     _logsHistorico.clear();
 
-    for (final h in _habits) {
-      final log = await _db.getLog(h.id!, _selectedDate);
-      _logsHoy[h.id!] = log;
-
-      final historicos = await _db.getLogsForHabit(h.id!, ultimosDias: 60);
-      _logsHistorico[h.id!] = historicos;
+    if (_habits.isNotEmpty) {
+      final ids = _habits.map((h) => h.id!).toList();
+      // Una sola query para todos los hábitos en lugar de 2×N queries seriales.
+      final batch = await _db.getLogsForAllHabits(ids, ultimosDias: 60);
+      _logsHistorico.addAll(batch);
     }
+
     notifyListeners();
   }
 
@@ -74,19 +75,25 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> toggleHabit(Habit habit, bool completado) async {
+    final existing = logDeHoy(habit.id!);
     final log = HabitLog(
-      id: _logsHoy[habit.id]?.id,
+      id: existing?.id,
       habitId: habit.id!,
       fecha: _selectedDate,
       completado: completado,
+      nota: existing?.nota, // preservar nota si existe
     );
     await _db.upsertLog(log);
-    _logsHoy[habit.id!] = log;
 
-    final historicos = await _db.getLogsForHabit(habit.id!, ultimosDias: 60);
-    _logsHistorico[habit.id!] = historicos;
+    // Parchear en memoria sin recargar 60 días desde DB.
+    final list = _logsHistorico[habit.id!] ??= [];
+    final idx = list.indexWhere((l) => du.isSameDay(l.fecha, _selectedDate));
+    if (idx >= 0) {
+      list[idx] = log;
+    } else {
+      list.insert(0, log);
+    }
 
-    // Reprogramar notificación con nuevo estado de fallos
     final fallos = StreakCalculator.rachaFallos(
       habit,
       _logsHistorico[habit.id!] ?? [],
@@ -103,7 +110,6 @@ class AppProvider extends ChangeNotifier {
     final id = await _db.insertHabit(habit);
     final h = habit.copyWith(id: id);
     _habits.add(h);
-    _logsHoy[id] = null;
     _logsHistorico[id] = [];
     await _notif.scheduleHabitNotification(habit: h, fallosConsecutivos: 0);
     notifyListeners();
@@ -113,7 +119,6 @@ class AppProvider extends ChangeNotifier {
     await _db.updateHabit(habit);
     final idx = _habits.indexWhere((h) => h.id == habit.id);
     if (idx != -1) _habits[idx] = habit;
-    await _notif.cancelHabitNotifications(habit.id!);
     final fallos = rachaFallos(habit);
     await _notif.scheduleHabitNotification(
         habit: habit, fallosConsecutivos: fallos);
@@ -124,7 +129,6 @@ class AppProvider extends ChangeNotifier {
     await _db.deleteHabit(id);
     await _notif.cancelHabitNotifications(id);
     _habits.removeWhere((h) => h.id == id);
-    _logsHoy.remove(id);
     _logsHistorico.remove(id);
     notifyListeners();
   }
@@ -179,15 +183,18 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> completeOnboarding(TimeOfDay horaDespertar) async {
+    // seedHabits es atómica (transacción). onboarding_done se escribe después,
+    // así que isFirstRun() = true solo si el seed no completó.
     await _db.seedHabits(horaDespertar);
     await _db.setPref('onboarding_done', '1');
     await _db.setPref(
         'hora_despertar', '${horaDespertar.hour}:${horaDespertar.minute}');
     await _loadHabits();
 
-    // Programar notificaciones para todos los hábitos semilla
-    for (final h in _habits) {
-      await _notif.scheduleHabitNotification(habit: h, fallosConsecutivos: 0);
-    }
+    // Programar notificaciones en paralelo.
+    await Future.wait([
+      for (final h in _habits)
+        _notif.scheduleHabitNotification(habit: h, fallosConsecutivos: 0),
+    ]);
   }
 }

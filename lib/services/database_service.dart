@@ -6,6 +6,7 @@ import '../models/habit.dart';
 import '../models/habit_log.dart';
 import '../models/task.dart';
 import '../models/daily_note.dart';
+import '../utils/date_utils.dart' as du;
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._();
@@ -127,11 +128,10 @@ class DatabaseService {
 
   Future<HabitLog?> getLog(int habitId, DateTime fecha) async {
     final d = await db;
-    final key = _dateKey(fecha);
     final rows = await d.query(
       'habit_logs',
       where: 'habit_id = ? AND fecha = ?',
-      whereArgs: [habitId, key],
+      whereArgs: [habitId, du.dateKey(fecha)],
     );
     return rows.isEmpty ? null : HabitLog.fromMap(rows.first);
   }
@@ -154,7 +154,7 @@ class DatabaseService {
     if (ultimosDias != null) {
       final desde = DateTime.now().subtract(Duration(days: ultimosDias));
       where = 'habit_id = ? AND fecha >= ?';
-      args = [habitId, _dateKey(desde)];
+      args = [habitId, du.dateKey(desde)];
     }
 
     final rows = await d.query(
@@ -166,6 +166,33 @@ class DatabaseService {
     return rows.map(HabitLog.fromMap).toList();
   }
 
+  /// Carga los logs de los últimos [ultimosDias] días para todos los habitIds
+  /// en una sola query, devolviendo un mapa habitId → lista de logs.
+  Future<Map<int, List<HabitLog>>> getLogsForAllHabits(
+    List<int> habitIds, {
+    required int ultimosDias,
+  }) async {
+    if (habitIds.isEmpty) return {};
+    final d = await db;
+    final desde = du.dateKey(
+        DateTime.now().subtract(Duration(days: ultimosDias)));
+    final placeholders = List.filled(habitIds.length, '?').join(',');
+    final rows = await d.rawQuery(
+      'SELECT * FROM habit_logs '
+      'WHERE habit_id IN ($placeholders) AND fecha >= ? '
+      'ORDER BY fecha DESC',
+      [...habitIds, desde],
+    );
+    final result = <int, List<HabitLog>>{
+      for (final id in habitIds) id: [],
+    };
+    for (final row in rows) {
+      final log = HabitLog.fromMap(row);
+      result[log.habitId]!.add(log);
+    }
+    return result;
+  }
+
   // ─── Tasks ───────────────────────────────────────────────────────────────
 
   Future<List<Task>> getTasksForDate(DateTime fecha) async {
@@ -173,7 +200,7 @@ class DatabaseService {
     final rows = await d.query(
       'tasks',
       where: 'fecha = ?',
-      whereArgs: [_dateKey(fecha)],
+      whereArgs: [du.dateKey(fecha)],
       orderBy: 'id ASC',
     );
     return rows.map(Task.fromMap).toList();
@@ -201,7 +228,7 @@ class DatabaseService {
     final rows = await d.query(
       'daily_notes',
       where: 'fecha = ?',
-      whereArgs: [_dateKey(fecha)],
+      whereArgs: [du.dateKey(fecha)],
     );
     return rows.isEmpty ? null : DailyNote.fromMap(rows.first);
   }
@@ -239,6 +266,8 @@ class DatabaseService {
 
   // ─── Seed ────────────────────────────────────────────────────────────────
 
+  /// Inserta los hábitos semilla dentro de una transacción atómica.
+  /// Si el proceso muere a la mitad, ningún hábito queda a medias.
   Future<void> seedHabits(TimeOfDay horaDespertar) async {
     final horaEjercicio = const TimeOfDay(hour: 7, minute: 0);
     final horaIngles = const TimeOfDay(hour: 21, minute: 0);
@@ -252,13 +281,13 @@ class DatabaseService {
       Habit(
         nombre: 'Inglés',
         tipoFrecuencia: FrecuenciaTipo.diasEspecificos,
-        diasSemana: [1, 2, 3, 4], // Lun–Jue
+        diasSemana: [1, 2, 3, 4],
         horaObjetivo: horaIngles,
       ),
       Habit(
         nombre: 'Ejercicio',
         tipoFrecuencia: FrecuenciaTipo.diasEspecificos,
-        diasSemana: [1, 3, 6], // Lun, Mié, Sáb
+        diasSemana: [1, 3, 6],
         horaObjetivo: horaEjercicio,
       ),
       Habit(
@@ -271,13 +300,11 @@ class DatabaseService {
       ),
     ];
 
-    for (final h in seeds) {
-      await insertHabit(h);
-    }
+    final d = await db;
+    await d.transaction((txn) async {
+      for (final h in seeds) {
+        await txn.insert('habits', h.toMap());
+      }
+    });
   }
-
-  static String _dateKey(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
 }
