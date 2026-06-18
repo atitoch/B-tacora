@@ -42,6 +42,13 @@ class NotificationService {
       const InitializationSettings(android: android, iOS: ios),
     );
 
+    // Limpiar notificaciones previas con formato incompatible (instalaciones
+    // anteriores). Si falla, ignorar — los datos corruptos se sobrescriben
+    // en el siguiente scheduleHabitNotification.
+    try {
+      await _plugin.cancelAll();
+    } catch (_) {}
+
     // Android 13+ requiere solicitud explícita en runtime (POST_NOTIFICATIONS).
     await _plugin
         .resolvePlatformSpecificImplementation<
@@ -104,14 +111,18 @@ class NotificationService {
 
   Future<void> cancelHabitNotifications(int habitId) async {
     _lastScheduleKey.remove(habitId);
-    await Future.wait([
-      for (int dia = 1; dia <= 7; dia++) _plugin.cancel(_notifId(habitId, dia)),
-    ]);
+    try {
+      await Future.wait([
+        for (int dia = 1; dia <= 7; dia++) _plugin.cancel(_notifId(habitId, dia)),
+      ]);
+    } catch (_) {}
   }
 
   Future<void> cancelAll() async {
     _lastScheduleKey.clear();
-    await _plugin.cancelAll();
+    try {
+      await _plugin.cancelAll();
+    } catch (_) {}
   }
 
   Future<void> _scheduleWeekly({

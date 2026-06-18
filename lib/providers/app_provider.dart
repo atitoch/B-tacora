@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/habit.dart';
 import '../models/habit_log.dart';
-import '../models/task.dart';
+import '../models/task.dart' show Task, Prioridad;
 import '../models/daily_note.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
@@ -58,16 +58,20 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
-    await _notif.init();
+    try {
+      await _notif.init();
+    } catch (_) {}
     await _loadHabits();
     await _loadTasksAndNote();
-    await Future.wait([
-      for (final h in _habits)
-        _notif.scheduleHabitNotification(
-          habit: h,
-          fallosConsecutivos: rachaFallos(h),
-        ),
-    ]);
+    try {
+      await Future.wait([
+        for (final h in _habits)
+          _notif.scheduleHabitNotification(
+            habit: h,
+            fallosConsecutivos: rachaFallos(h),
+          ),
+      ]);
+    } catch (_) {}
   }
 
   /// Refresca la fecha de referencia cuando la app vuelve a foreground.
@@ -130,10 +134,12 @@ class AppProvider extends ChangeNotifier {
         _logsHistorico[id] ?? [],
         _selectedDate,
       );
-      await _notif.scheduleHabitNotification(
-        habit: habit,
-        fallosConsecutivos: fallos,
-      );
+      try {
+        await _notif.scheduleHabitNotification(
+          habit: habit,
+          fallosConsecutivos: fallos,
+        );
+      } catch (_) {}
 
       notifyListeners();
     } finally {
@@ -150,7 +156,9 @@ class AppProvider extends ChangeNotifier {
     final h = habitConFecha.copyWith(id: id);
     _habits.add(h);
     _logsHistorico[id] = [];
-    await _notif.scheduleHabitNotification(habit: h, fallosConsecutivos: 0);
+    try {
+      await _notif.scheduleHabitNotification(habit: h, fallosConsecutivos: 0);
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -159,8 +167,26 @@ class AppProvider extends ChangeNotifier {
     final idx = _habits.indexWhere((h) => h.id == habit.id);
     if (idx != -1) _habits[idx] = habit;
     final fallos = rachaFallos(habit);
-    await _notif.scheduleHabitNotification(
-        habit: habit, fallosConsecutivos: fallos);
+    try {
+      await _notif.scheduleHabitNotification(
+          habit: habit, fallosConsecutivos: fallos);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> reorderHabits(int oldIndex, int newIndex) async {
+    if (newIndex > oldIndex) newIndex--;
+    final visible = habitsDeLaFecha;
+    final fromId = visible[oldIndex].id!;
+    final toId = visible[newIndex].id!;
+    final fromGlobal = _habits.indexWhere((h) => h.id == fromId);
+    final toGlobal = _habits.indexWhere((h) => h.id == toId);
+    final item = _habits.removeAt(fromGlobal);
+    _habits.insert(toGlobal, item);
+    for (var i = 0; i < _habits.length; i++) {
+      _habits[i] = _habits[i].copyWith(orden: i);
+    }
+    await _db.saveHabitOrder(_habits);
     notifyListeners();
   }
 
@@ -184,6 +210,33 @@ class AppProvider extends ChangeNotifier {
     await _db.updateTask(updated);
     final idx = _tasks.indexWhere((t) => t.id == task.id);
     if (idx != -1) _tasks[idx] = updated;
+    notifyListeners();
+  }
+
+  Future<void> renameTask(Task task, String nuevoNombre) async {
+    final updated = task.copyWith(nombre: nuevoNombre);
+    await _db.updateTask(updated);
+    final idx = _tasks.indexWhere((t) => t.id == task.id);
+    if (idx != -1) _tasks[idx] = updated;
+    notifyListeners();
+  }
+
+  Future<void> setTaskPriority(Task task, Prioridad prioridad) async {
+    final updated = task.copyWith(prioridad: prioridad);
+    await _db.updateTask(updated);
+    final idx = _tasks.indexWhere((t) => t.id == task.id);
+    if (idx != -1) _tasks[idx] = updated;
+    notifyListeners();
+  }
+
+  Future<void> reorderTasks(int oldIndex, int newIndex) async {
+    if (newIndex > oldIndex) newIndex--;
+    final item = _tasks.removeAt(oldIndex);
+    _tasks.insert(newIndex, item);
+    for (var i = 0; i < _tasks.length; i++) {
+      _tasks[i] = _tasks[i].copyWith(orden: i);
+    }
+    await _db.saveTaskOrder(_tasks);
     notifyListeners();
   }
 
@@ -226,9 +279,11 @@ class AppProvider extends ChangeNotifier {
         'hora_despertar', '${horaDespertar.hour}:${horaDespertar.minute}');
     await _loadHabits();
 
-    await Future.wait([
-      for (final h in _habits)
-        _notif.scheduleHabitNotification(habit: h, fallosConsecutivos: 0),
-    ]);
+    try {
+      await Future.wait([
+        for (final h in _habits)
+          _notif.scheduleHabitNotification(habit: h, fallosConsecutivos: 0),
+      ]);
+    } catch (_) {}
   }
 }

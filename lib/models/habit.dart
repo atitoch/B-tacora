@@ -11,6 +11,7 @@ class Habit {
   final TimeOfDay? horaObjetivo;
   final bool activo;
   final DateTime? fechaCreacion;
+  final int orden;
 
   Habit({
     this.id,
@@ -20,6 +21,7 @@ class Habit {
     this.horaObjetivo,
     this.activo = true,
     this.fechaCreacion,
+    this.orden = 0,
   });
 
   bool tocaHoy(DateTime fecha) {
@@ -38,7 +40,9 @@ class Habit {
       'hora_h': horaObjetivo?.hour,
       'hora_m': horaObjetivo?.minute,
       'activo': activo ? 1 : 0,
-      'fecha_creacion': fechaCreacion != null ? du.dateKey(fechaCreacion!) : null,
+      'fecha_creacion':
+          fechaCreacion != null ? du.dateKey(fechaCreacion!) : null,
+      'orden': orden,
     };
   }
 
@@ -59,6 +63,7 @@ class Habit {
       fechaCreacion: (m['fecha_creacion'] as String?) != null
           ? DateTime.parse(m['fecha_creacion'] as String)
           : null,
+      orden: (m['orden'] as int?) ?? 0,
     );
   }
 
@@ -70,6 +75,7 @@ class Habit {
     TimeOfDay? horaObjetivo,
     bool? activo,
     DateTime? fechaCreacion,
+    int? orden,
   }) {
     return Habit(
       id: id ?? this.id,
@@ -79,6 +85,7 @@ class Habit {
       horaObjetivo: horaObjetivo ?? this.horaObjetivo,
       activo: activo ?? this.activo,
       fechaCreacion: fechaCreacion ?? this.fechaCreacion,
+      orden: orden ?? this.orden,
     );
   }
 }

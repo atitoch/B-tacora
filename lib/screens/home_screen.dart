@@ -9,6 +9,7 @@ import '../utils/date_utils.dart' as du;
 import 'habits_screen.dart';
 import 'tasks_screen.dart';
 import 'history_screen.dart';
+import '../widgets/habit_form_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -136,6 +137,21 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _showAddHabitDialog(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final result = await showModalBottomSheet<dynamic>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const HabitFormDialog(),
+    );
+    if (result != null && context.mounted) {
+      await provider.addHabit(result);
+    }
+  }
+
   /// Escribe el JSON a un archivo temporal y abre el share sheet del SO.
   Future<void> _exportData(BuildContext context) async {
     final provider = context.read<AppProvider>();
@@ -243,6 +259,13 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: _screens[_tab],
+      floatingActionButton: _tab == 0
+          ? FloatingActionButton(
+              onPressed: () => _showAddHabitDialog(context),
+              tooltip: 'Nuevo hábito',
+              child: const Icon(Icons.add),
+            )
+          : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),

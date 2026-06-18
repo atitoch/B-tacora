@@ -24,7 +24,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'btacora.db'),
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -35,6 +35,17 @@ class DatabaseService {
       await db.execute(
         'ALTER TABLE habits ADD COLUMN fecha_creacion TEXT',
       );
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+          'ALTER TABLE habits ADD COLUMN orden INTEGER NOT NULL DEFAULT 0');
+      await db.execute(
+          'ALTER TABLE tasks ADD COLUMN orden INTEGER NOT NULL DEFAULT 0');
+      await db.execute(
+          'ALTER TABLE tasks ADD COLUMN prioridad INTEGER NOT NULL DEFAULT 0');
+      // Inicializar orden = id para preservar el orden existente
+      await db.execute('UPDATE habits SET orden = id');
+      await db.execute('UPDATE tasks SET orden = id');
     }
   }
 
@@ -48,7 +59,8 @@ class DatabaseService {
         hora_h INTEGER,
         hora_m INTEGER,
         activo INTEGER NOT NULL DEFAULT 1,
-        fecha_creacion TEXT
+        fecha_creacion TEXT,
+        orden INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -69,7 +81,9 @@ class DatabaseService {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre TEXT NOT NULL,
         fecha TEXT NOT NULL,
-        completada INTEGER NOT NULL DEFAULT 0
+        completada INTEGER NOT NULL DEFAULT 0,
+        prioridad INTEGER NOT NULL DEFAULT 0,
+        orden INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -114,8 +128,19 @@ class DatabaseService {
     final rows = await d.query(
       'habits',
       where: soloActivos ? 'activo = 1' : null,
+      orderBy: 'orden ASC, id ASC',
     );
     return rows.map(Habit.fromMap).toList();
+  }
+
+  Future<void> saveHabitOrder(List<Habit> habits) async {
+    final d = await db;
+    final batch = d.batch();
+    for (var i = 0; i < habits.length; i++) {
+      batch.update('habits', {'orden': i},
+          where: 'id = ?', whereArgs: [habits[i].id]);
+    }
+    await batch.commit(noResult: true);
   }
 
   Future<int> insertHabit(Habit h) async {
@@ -213,9 +238,19 @@ class DatabaseService {
       'tasks',
       where: 'fecha = ?',
       whereArgs: [du.dateKey(fecha)],
-      orderBy: 'id ASC',
+      orderBy: 'orden ASC, id ASC',
     );
     return rows.map(Task.fromMap).toList();
+  }
+
+  Future<void> saveTaskOrder(List<Task> tasks) async {
+    final d = await db;
+    final batch = d.batch();
+    for (var i = 0; i < tasks.length; i++) {
+      batch.update('tasks', {'orden': i},
+          where: 'id = ?', whereArgs: [tasks[i].id]);
+    }
+    await batch.commit(noResult: true);
   }
 
   Future<int> insertTask(Task t) async {

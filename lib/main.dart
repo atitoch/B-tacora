@@ -88,8 +88,15 @@ class _AppRootState extends State<_AppRoot> with WidgetsBindingObserver {
 
   Future<void> _init() async {
     final provider = context.read<AppProvider>();
-    await provider.initialize();
-    final firstRun = await provider.isFirstRun();
+    try {
+      await provider.initialize();
+    } catch (_) {
+      // Notifications or DB error on startup — still proceed to the right screen.
+    }
+    bool firstRun = false;
+    try {
+      firstRun = await provider.isFirstRun();
+    } catch (_) {}
     if (mounted) {
       setState(() {
         _firstRun = firstRun;

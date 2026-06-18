@@ -22,10 +22,16 @@ class TasksScreen extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                 )
-              : ListView.builder(
+              : ReorderableListView.builder(
                   padding: const EdgeInsets.only(top: 8, bottom: 8),
+                  buildDefaultDragHandles: false,
+                  onReorder: context.read<AppProvider>().reorderTasks,
                   itemCount: tasks.length,
-                  itemBuilder: (ctx, i) => TaskTile(task: tasks[i]),
+                  itemBuilder: (ctx, i) => TaskTile(
+                    key: ValueKey(tasks[i].id),
+                    task: tasks[i],
+                    index: i,
+                  ),
                 ),
         ),
         _AddTaskBar(),
@@ -97,10 +103,9 @@ class _AddTaskBarState extends State<_AddTaskBar> {
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                fillColor:
-                    theme.colorScheme.surfaceContainerHighest,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
+                fillColor: theme.colorScheme.surfaceContainerHighest,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               ),
               onSubmitted: (_) => _submit(),
             ),

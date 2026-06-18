@@ -20,10 +20,16 @@ class HabitsScreen extends StatelessWidget {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.only(top: 8, bottom: 24),
+    return ReorderableListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 88),
+      buildDefaultDragHandles: false,
+      onReorder: context.read<AppProvider>().reorderHabits,
       itemCount: habitos.length,
-      itemBuilder: (ctx, i) => HabitTile(habit: habitos[i]),
+      itemBuilder: (ctx, i) => HabitTile(
+        key: ValueKey(habitos[i].id),
+        habit: habitos[i],
+        index: i,
+      ),
     );
   }
 }

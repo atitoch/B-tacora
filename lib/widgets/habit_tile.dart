@@ -3,11 +3,55 @@ import 'package:provider/provider.dart';
 import '../models/habit.dart';
 import '../providers/app_provider.dart';
 import 'streak_badge.dart';
+import 'habit_form_dialog.dart';
 
 class HabitTile extends StatelessWidget {
   final Habit habit;
+  final int index;
 
-  const HabitTile({super.key, required this.habit});
+  const HabitTile({super.key, required this.habit, required this.index});
+
+  Future<void> _showEditDialog(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final result = await showModalBottomSheet<Habit>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => HabitFormDialog(habit: habit),
+    );
+    if (result != null && context.mounted) {
+      await provider.updateHabit(result);
+    }
+  }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar hábito'),
+        content: Text('¿Eliminar "${habit.nombre}"? Se borrarán también sus registros.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      await provider.deleteHabit(habit.id!);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +95,51 @@ class HabitTile extends StatelessWidget {
           ),
         ),
         subtitle: _buildSubtitle(context, theme, fallos),
-        trailing: StreakBadge(racha: racha),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            StreakBadge(racha: racha),
+            ReorderableDragStartListener(
+              index: index,
+              child: Icon(
+                Icons.drag_handle,
+                size: 20,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+              ),
+            ),
+            PopupMenuButton<String>(
+              icon: Icon(
+                Icons.more_vert,
+                size: 18,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
+              onSelected: (v) {
+                if (v == 'edit') _showEditDialog(context);
+                if (v == 'delete') _confirmDelete(context);
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'edit',
+                  child: ListTile(
+                    leading: Icon(Icons.edit_outlined),
+                    title: Text('Editar'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline),
+                    title: Text('Eliminar'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
