@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../models/habit.dart';
-import '../services/streak_calculator.dart' show DiaHistorial;
 import '../utils/date_utils.dart' as du;
 
 class HistoryScreen extends StatelessWidget {

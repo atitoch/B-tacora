@@ -52,7 +52,9 @@ class StreakCalculator {
       }
       // No contar días anteriores a la creación del hábito.
       if (habit.fechaCreacion != null &&
-          dia.isBefore(habit.fechaCreacion!)) break;
+          dia.isBefore(habit.fechaCreacion!)) {
+        break;
+      }
       final log = logMap[du.dateKey(dia)];
       if (log != null && log.completado) break;
       fallos++;
