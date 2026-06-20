@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import '../utils/date_utils.dart' as du;
 
 enum Prioridad { ninguna, alta, media, baja }
@@ -9,6 +10,7 @@ class Task {
   final bool completada;
   final Prioridad prioridad;
   final int orden;
+  final TimeOfDay? horaObjetivo;
 
   Task({
     this.id,
@@ -17,6 +19,7 @@ class Task {
     this.completada = false,
     this.prioridad = Prioridad.ninguna,
     this.orden = 0,
+    this.horaObjetivo,
   });
 
   Map<String, dynamic> toMap() {
@@ -27,6 +30,8 @@ class Task {
       'completada': completada ? 1 : 0,
       'prioridad': prioridad.index,
       'orden': orden,
+      'hora_h': horaObjetivo?.hour,
+      'hora_m': horaObjetivo?.minute,
     };
   }
 
@@ -38,6 +43,9 @@ class Task {
       completada: (m['completada'] as int) == 1,
       prioridad: Prioridad.values[(m['prioridad'] as int?) ?? 0],
       orden: (m['orden'] as int?) ?? 0,
+      horaObjetivo: (m['hora_h'] != null && m['hora_m'] != null)
+          ? TimeOfDay(hour: m['hora_h'] as int, minute: m['hora_m'] as int)
+          : null,
     );
   }
 
@@ -47,6 +55,8 @@ class Task {
     String? nombre,
     Prioridad? prioridad,
     int? orden,
+    TimeOfDay? horaObjetivo,
+    bool clearHora = false,
   }) {
     return Task(
       id: id ?? this.id,
@@ -55,6 +65,7 @@ class Task {
       completada: completada ?? this.completada,
       prioridad: prioridad ?? this.prioridad,
       orden: orden ?? this.orden,
+      horaObjetivo: clearHora ? null : (horaObjetivo ?? this.horaObjetivo),
     );
   }
 }

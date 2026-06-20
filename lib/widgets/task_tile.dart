@@ -39,50 +39,97 @@ class TaskTile extends StatelessWidget {
     final provider = context.read<AppProvider>();
     final ctrl = TextEditingController(text: task.nombre);
     Prioridad selectedPrioridad = task.prioridad;
+    TimeOfDay? selectedHora = task.horaObjetivo;
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) => AlertDialog(
           title: const Text('Editar tarea'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: ctrl,
-                autofocus: true,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  labelText: 'Nombre',
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Nombre',
+                  ),
+                  onSubmitted: (_) => Navigator.of(ctx).pop(true),
                 ),
-                onSubmitted: (_) => Navigator.of(ctx).pop(true),
-              ),
-              const SizedBox(height: 16),
-              Text('Prioridad',
-                  style: Theme.of(ctx).textTheme.labelMedium),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                children: Prioridad.values.map((p) {
-                  final color = _priorityColor(p);
-                  final selected = selectedPrioridad == p;
-                  return ChoiceChip(
-                    label: Text(_priorityLabel(p)),
-                    selected: selected,
-                    avatar: color != null
-                        ? CircleAvatar(
-                            backgroundColor: color,
-                            radius: 6,
-                          )
-                        : null,
-                    onSelected: (_) =>
-                        setModal(() => selectedPrioridad = p),
-                  );
-                }).toList(),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Text('Prioridad',
+                    style: Theme.of(ctx).textTheme.labelMedium),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  children: Prioridad.values.map((p) {
+                    final color = _priorityColor(p);
+                    final selected = selectedPrioridad == p;
+                    return ChoiceChip(
+                      label: Text(_priorityLabel(p)),
+                      selected: selected,
+                      avatar: color != null
+                          ? CircleAvatar(
+                              backgroundColor: color,
+                              radius: 6,
+                            )
+                          : null,
+                      onSelected: (_) =>
+                          setModal(() => selectedPrioridad = p),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+                Text('Hora (opcional)',
+                    style: Theme.of(ctx).textTheme.labelMedium),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.access_time, size: 18),
+                      label: Text(selectedHora != null
+                          ? selectedHora!.format(ctx)
+                          : 'Sin hora'),
+                      onPressed: () async {
+                        final picked = await showTimePicker(
+                          context: ctx,
+                          initialTime: selectedHora ?? TimeOfDay.now(),
+                        );
+                        if (picked != null) {
+                          setModal(() => selectedHora = picked);
+                        }
+                      },
+                    ),
+                    if (selectedHora != null) ...[
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        tooltip: 'Quitar hora',
+                        onPressed: () => setModal(() => selectedHora = null),
+                      ),
+                    ],
+                  ],
+                ),
+                if (selectedHora != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Recibirás un recordatorio a esta hora.',
+                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(ctx)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                    ),
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -102,11 +149,17 @@ class TaskTile extends StatelessWidget {
     ctrl.dispose();
 
     if (confirmed == true && context.mounted) {
-      if (nombre.isNotEmpty && nombre != task.nombre) {
-        await provider.renameTask(task, nombre);
-      }
-      if (selectedPrioridad != task.prioridad) {
-        await provider.setTaskPriority(task, selectedPrioridad);
+      final nombreCambiado = nombre.isNotEmpty && nombre != task.nombre;
+      final prioridadCambiada = selectedPrioridad != task.prioridad;
+      final horaCambiada = selectedHora != task.horaObjetivo;
+      if (nombreCambiado || prioridadCambiada || horaCambiada) {
+        await provider.editTask(
+          task,
+          nombre: nombreCambiado ? nombre : null,
+          prioridad: prioridadCambiada ? selectedPrioridad : null,
+          hora: selectedHora,
+          clearHora: selectedHora == null,
+        );
       }
     }
   }
@@ -197,6 +250,30 @@ class TaskTile extends StatelessWidget {
             ),
           ],
         ),
+        subtitle: task.horaObjetivo != null
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    // Pendiente con hora → hay recordatorio activo;
+                    // completada → solo la hora, sin recordatorio.
+                    task.completada
+                        ? Icons.access_time
+                        : Icons.notifications_active_outlined,
+                    size: 13,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    task.horaObjetivo!.format(context),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ],
+              )
+            : null,
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

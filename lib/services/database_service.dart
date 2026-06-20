@@ -24,7 +24,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'btacora.db'),
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -46,6 +46,15 @@ class DatabaseService {
       // Inicializar orden = id para preservar el orden existente
       await db.execute('UPDATE habits SET orden = id');
       await db.execute('UPDATE tasks SET orden = id');
+    }
+    if (oldVersion < 4) {
+      // Hora objetivo opcional para tareas (habilita notificaciones).
+      await db.execute('ALTER TABLE tasks ADD COLUMN hora_h INTEGER');
+      await db.execute('ALTER TABLE tasks ADD COLUMN hora_m INTEGER');
+      // Snapshot de la hora objetivo al registrar un hábito: preserva la hora
+      // histórica aunque luego se edite el hábito.
+      await db.execute('ALTER TABLE habit_logs ADD COLUMN hora_h INTEGER');
+      await db.execute('ALTER TABLE habit_logs ADD COLUMN hora_m INTEGER');
     }
   }
 
@@ -71,6 +80,8 @@ class DatabaseService {
         fecha TEXT NOT NULL,
         completado INTEGER NOT NULL DEFAULT 0,
         nota TEXT,
+        hora_h INTEGER,
+        hora_m INTEGER,
         FOREIGN KEY (habit_id) REFERENCES habits(id),
         UNIQUE(habit_id, fecha)
       )
@@ -83,7 +94,9 @@ class DatabaseService {
         fecha TEXT NOT NULL,
         completada INTEGER NOT NULL DEFAULT 0,
         prioridad INTEGER NOT NULL DEFAULT 0,
-        orden INTEGER NOT NULL DEFAULT 0
+        orden INTEGER NOT NULL DEFAULT 0,
+        hora_h INTEGER,
+        hora_m INTEGER
       )
     ''');
 
@@ -239,6 +252,19 @@ class DatabaseService {
       where: 'fecha = ?',
       whereArgs: [du.dateKey(fecha)],
       orderBy: 'orden ASC, id ASC',
+    );
+    return rows.map(Task.fromMap).toList();
+  }
+
+  /// Tareas con hora objetivo, pendientes y con fecha de hoy en adelante.
+  /// Usado al iniciar la app para (re)programar sus notificaciones.
+  Future<List<Task>> getUpcomingTasksWithTime() async {
+    final d = await db;
+    final hoy = du.dateKey(DateTime.now());
+    final rows = await d.query(
+      'tasks',
+      where: 'fecha >= ? AND hora_h IS NOT NULL AND completada = 0',
+      whereArgs: [hoy],
     );
     return rows.map(Task.fromMap).toList();
   }

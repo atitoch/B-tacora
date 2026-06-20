@@ -152,6 +152,74 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Configura la anticipación (en minutos) de las notificaciones.
+  Future<void> _showNotifSettings(BuildContext context) async {
+    final provider = context.read<AppProvider>();
+    const opciones = [0, 5, 10, 15, 30, 60];
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            final seleccion = provider.anticipacionMinutos;
+            final theme = Theme.of(ctx);
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                  24, 24, 24, 24 + MediaQuery.of(ctx).viewInsets.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Notificaciones',
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Anticipación: ¿cuántos minutos antes de la hora del '
+                    'hábito o tarea quieres el aviso?',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color:
+                          theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: opciones.map((min) {
+                      final selected = seleccion == min;
+                      return ChoiceChip(
+                        label: Text(min == 0 ? 'A la hora' : '$min min antes'),
+                        selected: selected,
+                        onSelected: (_) async {
+                          await provider.setAnticipacionMinutos(min);
+                          setModal(() {});
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Listo'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   /// Escribe el JSON a un archivo temporal y abre el share sheet del SO.
   Future<void> _exportData(BuildContext context) async {
     final provider = context.read<AppProvider>();
@@ -244,6 +312,14 @@ class _HomeScreenState extends State<HomeScreen> {
           PopupMenuButton(
             itemBuilder: (ctx) => [
               const PopupMenuItem(
+                value: 'notif',
+                child: ListTile(
+                  leading: Icon(Icons.notifications_outlined),
+                  title: Text('Notificaciones'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
                 value: 'export',
                 child: ListTile(
                   leading: Icon(Icons.ios_share_outlined),
@@ -254,6 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
             onSelected: (v) {
               if (v == 'export') _exportData(context);
+              if (v == 'notif') _showNotifSettings(context);
             },
           ),
         ],

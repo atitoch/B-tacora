@@ -16,6 +16,9 @@ class AppProvider extends ChangeNotifier {
   List<Task> _tasks = [];
   DailyNote? _dailyNote;
 
+  // Anticipación de las notificaciones, en minutos (configurable por el usuario).
+  int _anticipacionMinutos = 0;
+
   // Normalizado a medianoche para evitar desfases de hora/DST en comparaciones.
   DateTime _selectedDate = _midnight(DateTime.now());
 
@@ -31,6 +34,7 @@ class AppProvider extends ChangeNotifier {
   List<Task> get tasks => _tasks;
   DailyNote? get dailyNote => _dailyNote;
   DateTime get selectedDate => _selectedDate;
+  int get anticipacionMinutos => _anticipacionMinutos;
 
   List<Habit> get habitsDeLaFecha =>
       _habits.where((h) => h.tocaHoy(_selectedDate)).toList();
@@ -57,10 +61,23 @@ class AppProvider extends ChangeNotifier {
         habit, _logsHistorico[habit.id] ?? [], 14, _selectedDate);
   }
 
+  List<DiaHistorial> historialDetalle14(Habit habit) {
+    return StreakCalculator.historialDetalle(
+        habit, _logsHistorico[habit.id] ?? [], 14, _selectedDate);
+  }
+
   Future<void> initialize() async {
     try {
       await _notif.init();
     } catch (_) {}
+
+    // Cargar la anticipación configurada antes de programar nada.
+    try {
+      final raw = await _db.getPref('notif_anticipacion_min');
+      _anticipacionMinutos = int.tryParse(raw ?? '') ?? 0;
+    } catch (_) {}
+    _notif.anticipacionMinutos = _anticipacionMinutos;
+
     await _loadHabits();
     await _loadTasksAndNote();
     try {
@@ -72,6 +89,38 @@ class AppProvider extends ChangeNotifier {
           ),
       ]);
     } catch (_) {}
+    await _rescheduleTaskNotifications();
+  }
+
+  /// (Re)programa las notificaciones de todas las tareas pendientes con hora
+  /// de hoy en adelante. init() limpia las notificaciones previas, así que hay
+  /// que reprogramarlas en cada arranque.
+  Future<void> _rescheduleTaskNotifications() async {
+    try {
+      final upcoming = await _db.getUpcomingTasksWithTime();
+      await Future.wait(
+          [for (final t in upcoming) _notif.scheduleTaskNotification(t)]);
+    } catch (_) {}
+  }
+
+  /// Cambia la anticipación (minutos) y reprograma todas las notificaciones.
+  Future<void> setAnticipacionMinutos(int minutos) async {
+    final v = minutos < 0 ? 0 : minutos;
+    if (v == _anticipacionMinutos) return;
+    _anticipacionMinutos = v;
+    _notif.anticipacionMinutos = v;
+    await _db.setPref('notif_anticipacion_min', '$v');
+    try {
+      await Future.wait([
+        for (final h in _habits)
+          _notif.scheduleHabitNotification(
+            habit: h,
+            fallosConsecutivos: rachaFallos(h),
+          ),
+      ]);
+    } catch (_) {}
+    await _rescheduleTaskNotifications();
+    notifyListeners();
   }
 
   /// Refresca la fecha de referencia cuando la app vuelve a foreground.
@@ -118,6 +167,9 @@ class AppProvider extends ChangeNotifier {
         fecha: _selectedDate,
         completado: completado,
         nota: existing?.nota,
+        // Snapshot de la hora objetivo al registrar. Si ya existía un snapshot
+        // se conserva: editar el hábito más tarde no reescribe el pasado.
+        horaObjetivo: existing?.horaObjetivo ?? habit.horaObjetivo,
       );
       await _db.upsertLog(log);
 
@@ -198,10 +250,17 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addTask(String nombre) async {
-    final t = Task(nombre: nombre, fecha: _selectedDate);
+  Future<void> addTask(String nombre, {TimeOfDay? horaObjetivo}) async {
+    final t =
+        Task(nombre: nombre, fecha: _selectedDate, horaObjetivo: horaObjetivo);
     final id = await _db.insertTask(t);
-    _tasks.add(t.copyWith(id: id));
+    final saved = t.copyWith(id: id);
+    _tasks.add(saved);
+    if (horaObjetivo != null) {
+      try {
+        await _notif.scheduleTaskNotification(saved);
+      } catch (_) {}
+    }
     notifyListeners();
   }
 
@@ -210,22 +269,41 @@ class AppProvider extends ChangeNotifier {
     await _db.updateTask(updated);
     final idx = _tasks.indexWhere((t) => t.id == task.id);
     if (idx != -1) _tasks[idx] = updated;
+    // Completar cancela el recordatorio; reabrir lo reprograma.
+    try {
+      if (updated.completada) {
+        await _notif.cancelTaskNotification(task.id!);
+      } else {
+        await _notif.scheduleTaskNotification(updated);
+      }
+    } catch (_) {}
     notifyListeners();
   }
 
-  Future<void> renameTask(Task task, String nuevoNombre) async {
-    final updated = task.copyWith(nombre: nuevoNombre);
+  /// Edita nombre, prioridad y hora de una tarea en una sola escritura.
+  /// (Hacerlo en varias escrituras a partir del mismo `task` original haría que
+  /// la última revirtiera los cambios de las anteriores.)
+  Future<void> editTask(
+    Task task, {
+    String? nombre,
+    Prioridad? prioridad,
+    TimeOfDay? hora,
+    bool clearHora = false,
+  }) async {
+    final updated = task.copyWith(
+      nombre: nombre,
+      prioridad: prioridad,
+      horaObjetivo: hora,
+      clearHora: clearHora,
+    );
     await _db.updateTask(updated);
     final idx = _tasks.indexWhere((t) => t.id == task.id);
     if (idx != -1) _tasks[idx] = updated;
-    notifyListeners();
-  }
-
-  Future<void> setTaskPriority(Task task, Prioridad prioridad) async {
-    final updated = task.copyWith(prioridad: prioridad);
-    await _db.updateTask(updated);
-    final idx = _tasks.indexWhere((t) => t.id == task.id);
-    if (idx != -1) _tasks[idx] = updated;
+    // scheduleTaskNotification programa, reprograma o cancela según corresponda
+    // (sin hora, completada o instante pasado → cancela).
+    try {
+      await _notif.scheduleTaskNotification(updated);
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -242,6 +320,9 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> deleteTask(int id) async {
     await _db.deleteTask(id);
+    try {
+      await _notif.cancelTaskNotification(id);
+    } catch (_) {}
     _tasks.removeWhere((t) => t.id == id);
     notifyListeners();
   }

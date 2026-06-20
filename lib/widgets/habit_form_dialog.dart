@@ -181,6 +181,16 @@ class _HabitFormDialogState extends State<HabitFormDialog> {
                 ],
               ],
             ),
+            if (_hora != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Te recordaremos a esta hora (ajustable en Notificaciones).',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
 
             const SizedBox(height: 24),
 

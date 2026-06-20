@@ -1,6 +1,11 @@
+import 'package:flutter/material.dart';
 import '../models/habit.dart';
 import '../models/habit_log.dart';
 import '../utils/date_utils.dart' as du;
+
+/// Estado de un día en el historial: si aplicaba/cumplió y la hora objetivo
+/// con la que se registró (snapshot histórico).
+typedef DiaHistorial = ({bool? estado, TimeOfDay? hora});
 
 class StreakCalculator {
   // Público para que app_provider cargue exactamente la misma ventana de logs.
@@ -77,6 +82,31 @@ class StreakCalculator {
             ? log?.completado
             : (log?.completado ?? false));
       }
+    }
+    return result;
+  }
+
+  /// Igual que [historial] pero incluye la hora objetivo registrada (snapshot)
+  /// de cada día, para mostrar en el historial sin alterarla al editar el hábito.
+  static List<DiaHistorial> historialDetalle(
+      Habit habit, List<HabitLog> logs, int dias, DateTime referenceDate) {
+    final logMap = {for (final l in logs) du.dateKey(l.fecha): l};
+    final result = <DiaHistorial>[];
+    for (int i = dias - 1; i >= 0; i--) {
+      final dia = referenceDate.subtract(Duration(days: i));
+      if (habit.fechaCreacion != null && dia.isBefore(habit.fechaCreacion!)) {
+        result.add((estado: null, hora: null));
+        continue;
+      }
+      if (!habit.tocaHoy(dia)) {
+        result.add((estado: null, hora: null));
+        continue;
+      }
+      final log = logMap[du.dateKey(dia)];
+      final estado = du.isSameDay(dia, referenceDate)
+          ? log?.completado
+          : (log?.completado ?? false);
+      result.add((estado: estado, hora: log?.horaObjetivo));
     }
     return result;
   }

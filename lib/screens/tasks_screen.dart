@@ -48,6 +48,7 @@ class _AddTaskBar extends StatefulWidget {
 class _AddTaskBarState extends State<_AddTaskBar> {
   final _ctrl = TextEditingController();
   final _focus = FocusNode();
+  TimeOfDay? _hora;
 
   @override
   void dispose() {
@@ -56,13 +57,23 @@ class _AddTaskBarState extends State<_AddTaskBar> {
     super.dispose();
   }
 
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _hora ?? TimeOfDay.now(),
+    );
+    if (picked != null) setState(() => _hora = picked);
+  }
+
   Future<void> _submit() async {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
+    final hora = _hora;
     _ctrl.clear();
+    setState(() => _hora = null);
     _focus.requestFocus();
     try {
-      await context.read<AppProvider>().addTask(text);
+      await context.read<AppProvider>().addTask(text, horaObjetivo: hora);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -86,38 +97,68 @@ class _AddTaskBarState extends State<_AddTaskBar> {
           ),
         ),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _ctrl,
-              focusNode: _focus,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                hintText: 'Nueva tarea...',
-                hintStyle: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+          // Chip de hora seleccionada (con recordatorio) para la nueva tarea.
+          if (_hora != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: InputChip(
+                  avatar: const Icon(Icons.notifications_active_outlined,
+                      size: 16),
+                  label: Text('Recordar a las ${_hora!.format(context)}'),
+                  onDeleted: () => setState(() => _hora = null),
                 ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: theme.colorScheme.surfaceContainerHighest,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               ),
-              onSubmitted: (_) => _submit(),
             ),
-          ),
-          const SizedBox(width: 8),
-          IconButton.filled(
-            onPressed: _submit,
-            icon: const Icon(Icons.add),
-            style: IconButton.styleFrom(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _ctrl,
+                  focusNode: _focus,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    hintText: 'Nueva tarea...',
+                    hintStyle: TextStyle(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: theme.colorScheme.surfaceContainerHighest,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                  ),
+                  onSubmitted: (_) => _submit(),
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: _pickTime,
+                tooltip: 'Hora y recordatorio',
+                icon: Icon(
+                  _hora != null
+                      ? Icons.access_time_filled
+                      : Icons.access_time,
+                  color: _hora != null ? theme.colorScheme.primary : null,
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton.filled(
+                onPressed: _submit,
+                icon: const Icon(Icons.add),
+                style: IconButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
           ),
         ],
       ),

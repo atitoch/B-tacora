@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../models/habit.dart';
+import '../services/streak_calculator.dart' show DiaHistorial;
 import '../utils/date_utils.dart' as du;
 
 class HistoryScreen extends StatelessWidget {
@@ -43,7 +44,7 @@ class _HabitHistoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
-    final historial = provider.historial14(habit);
+    final historial = provider.historialDetalle14(habit);
     final theme = Theme.of(context);
 
     return Card(
@@ -67,11 +68,17 @@ class _HabitHistoryCard extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: List.generate(14, (i) {
-                final v = historial[i];
+                final dia = historial[i];
+                final fecha = selectedDate.subtract(Duration(days: 13 - i));
                 return Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 1.5),
-                    child: _DayDot(value: v, daysAgo: 13 - i),
+                    child: _DayDot(
+                      value: dia.estado,
+                      hora: dia.hora,
+                      fecha: fecha,
+                      daysAgo: 13 - i,
+                    ),
                   ),
                 );
               }),
@@ -106,9 +113,16 @@ class _HabitHistoryCard extends StatelessWidget {
 
 class _DayDot extends StatelessWidget {
   final bool? value; // null = no aplica, true = completado, false = falló
+  final TimeOfDay? hora; // hora objetivo registrada (snapshot histórico)
+  final DateTime fecha;
   final int daysAgo;
 
-  const _DayDot({required this.value, required this.daysAgo});
+  const _DayDot({
+    required this.value,
+    required this.hora,
+    required this.fecha,
+    required this.daysAgo,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -135,20 +149,28 @@ class _DayDot extends StatelessWidget {
 
     final color = value! ? theme.colorScheme.primary : theme.colorScheme.error;
 
-    return Container(
-      height: 28,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(4),
-        border: daysAgo == 0
-            ? Border.all(color: color, width: 1.5)
-            : null,
-      ),
-      child: Center(
-        child: Icon(
-          value! ? Icons.check : Icons.close,
-          size: 14,
-          color: color,
+    // Tooltip: fecha + hora registrada (preserva la hora histórica del registro).
+    final fechaStr = DateFormat('EEE d MMM', 'es').format(fecha);
+    final estadoStr = value! ? 'Cumplido' : 'No cumplido';
+    final horaStr = hora != null ? ' · ${hora!.format(context)}' : '';
+
+    return Tooltip(
+      message: '$fechaStr — $estadoStr$horaStr',
+      child: Container(
+        height: 28,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(4),
+          border: daysAgo == 0
+              ? Border.all(color: color, width: 1.5)
+              : null,
+        ),
+        child: Center(
+          child: Icon(
+            value! ? Icons.check : Icons.close,
+            size: 14,
+            color: color,
+          ),
         ),
       ),
     );

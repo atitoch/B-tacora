@@ -4,6 +4,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import '../models/habit.dart';
+import '../models/task.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._();
@@ -13,8 +14,16 @@ class NotificationService {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
-  // Cache de la última clave programada por habitId: body + hora + días.
-  // Incluir hora/días evita que un cambio de horario no reprograme.
+  // Anticipación en minutos: la notificación se dispara este número de minutos
+  // ANTES de la hora objetivo del hábito/tarea. Configurable por el usuario.
+  int anticipacionMinutos = 0;
+
+  // Base de IDs para notificaciones de tareas. Mantiene un espacio separado del
+  // de hábitos (habitId*10 + díaSemana) para evitar colisiones.
+  static const int _taskIdBase = 1000000000;
+
+  // Cache de la última clave programada por habitId: body + hora + días + offset.
+  // Incluir hora/días/offset evita que un cambio no reprograme.
   final Map<int, String> _lastScheduleKey = {};
 
   Future<void> init() async {
@@ -44,7 +53,7 @@ class NotificationService {
 
     // Limpiar notificaciones previas con formato incompatible (instalaciones
     // anteriores). Si falla, ignorar — los datos corruptos se sobrescriben
-    // en el siguiente scheduleHabitNotification.
+    // en el siguiente schedule.
     try {
       await _plugin.cancelAll();
     } catch (_) {}
@@ -57,6 +66,8 @@ class NotificationService {
 
     _initialized = true;
   }
+
+  // ─── Hábitos ───────────────────────────────────────────────────────────────
 
   Future<void> scheduleHabitNotification({
     required Habit habit,
@@ -81,12 +92,13 @@ class NotificationService {
         ? _copyConfronta(habit.nombre, fallosConsecutivos)
         : _copyNeutro(habit.nombre);
 
-    // Dirty-check: incluir hora y días para detectar cambios de horario.
+    // Dirty-check: incluir hora, días y offset para detectar cualquier cambio.
     final hora = habit.horaObjetivo!;
     final dias = habit.tipoFrecuencia == FrecuenciaTipo.diario
         ? 'daily'
         : (habit.diasSemana ?? []).join(',');
-    final scheduleKey = '${hora.hour}:${hora.minute}@$dias|$body';
+    final scheduleKey =
+        '${hora.hour}:${hora.minute}@$dias~$anticipacionMinutos|$body';
     if (_lastScheduleKey[habit.id] == scheduleKey) return;
     _lastScheduleKey[habit.id!] = scheduleKey;
 
@@ -157,9 +169,15 @@ class NotificationService {
     );
   }
 
+  /// Instante de la próxima notificación para un (día de la semana, hora),
+  /// restando la anticipación configurada. El instante resultante puede caer en
+  /// un día/hora distinto al objetivo (ej. 00:10 con 15 min de anticipación cae
+  /// el día anterior a las 23:55); matchDateTimeComponents usa ese instante para
+  /// la recurrencia semanal, por lo que la anticipación se mantiene cada semana.
   tz.TZDateTime _nextWeekday(
       tz.TZDateTime from, int targetWeekday, TimeOfDay hora) {
-    var candidate = tz.TZDateTime(
+    // Evento (hora objetivo) en el próximo día de la semana correcto.
+    var evento = tz.TZDateTime(
       tz.local,
       from.year,
       from.month,
@@ -167,15 +185,16 @@ class NotificationService {
       hora.hour,
       hora.minute,
     );
-    // Avanzar al día de la semana correcto; máx 7 iteraciones.
     for (int i = 0; i < 8; i++) {
-      if (candidate.weekday == targetWeekday &&
-          !candidate.isBefore(from.add(const Duration(seconds: 5)))) {
-        return candidate;
-      }
-      candidate = candidate.add(const Duration(days: 1));
+      if (evento.weekday == targetWeekday) break;
+      evento = evento.add(const Duration(days: 1));
     }
-    return candidate;
+    var scheduled = evento.subtract(Duration(minutes: anticipacionMinutos));
+    // Si ya pasó (incluye margen), saltar a la próxima semana.
+    if (scheduled.isBefore(from.add(const Duration(seconds: 5)))) {
+      scheduled = scheduled.add(const Duration(days: 7));
+    }
+    return scheduled;
   }
 
   String _copyNeutro(String nombre) => '$nombre — hora de cumplirlo.';
@@ -190,4 +209,62 @@ class NotificationService {
   }
 
   int _notifId(int habitId, int diaSemana) => habitId * 10 + diaSemana;
+
+  // ─── Tareas ──────────────────────────────────────────────────────────────
+
+  /// Programa una notificación única para una tarea con hora objetivo.
+  /// Si la tarea no tiene hora, está completada o el instante ya pasó, cancela.
+  Future<void> scheduleTaskNotification(Task task) async {
+    if (task.id == null) return;
+
+    if (task.horaObjetivo == null || task.completada) {
+      await cancelTaskNotification(task.id!);
+      return;
+    }
+
+    final now = tz.TZDateTime.now(tz.local);
+    final scheduled = tz.TZDateTime(
+      tz.local,
+      task.fecha.year,
+      task.fecha.month,
+      task.fecha.day,
+      task.horaObjetivo!.hour,
+      task.horaObjetivo!.minute,
+    ).subtract(Duration(minutes: anticipacionMinutos));
+
+    // Notificación de una sola vez: si ya pasó, no programar.
+    if (scheduled.isBefore(now.add(const Duration(seconds: 5)))) {
+      await cancelTaskNotification(task.id!);
+      return;
+    }
+
+    await _plugin.zonedSchedule(
+      _taskNotifId(task.id!),
+      'B-tácora · Tarea',
+      task.nombre,
+      scheduled,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'btacora_tareas',
+          'Tareas',
+          channelDescription: 'Recordatorios de tareas con hora',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      // Sin matchDateTimeComponents → notificación única.
+    );
+  }
+
+  Future<void> cancelTaskNotification(int taskId) async {
+    try {
+      await _plugin.cancel(_taskNotifId(taskId));
+    } catch (_) {}
+  }
+
+  int _taskNotifId(int taskId) => _taskIdBase + taskId;
 }
