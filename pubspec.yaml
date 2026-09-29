@@ -20,6 +20,8 @@ version: 1.2.0+3
 
 environment:
   sdk: ^3.10.1
+  # onReorderItem (ReorderableListView) requiere Flutter 3.41+.
+  flutter: ">=3.41.0"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
