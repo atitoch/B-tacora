@@ -19,9 +19,8 @@ jobs:
       - name: Instalar dependencias
         run: flutter pub get
 
-      # Los "info" (p. ej. APIs deprecadas) no bloquean; errores y warnings sí.
       - name: Analizar
-        run: flutter analyze --no-fatal-infos
+        run: flutter analyze
 
       - name: Tests
         run: flutter test

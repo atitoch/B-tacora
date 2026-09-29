@@ -226,8 +226,9 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Callback de `onReorderItem`: [newIndex] ya viene ajustado por Flutter
+  /// para la lista sin el elemento en [oldIndex] (no restar 1 aquí).
   Future<void> reorderHabits(int oldIndex, int newIndex) async {
-    if (newIndex > oldIndex) newIndex--;
     final visible = habitsDeLaFecha;
     final fromId = visible[oldIndex].id!;
     final toId = visible[newIndex].id!;
@@ -327,8 +328,9 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Callback de `onReorderItem`: [newIndex] ya viene ajustado por Flutter
+  /// para la lista sin el elemento en [oldIndex] (no restar 1 aquí).
   Future<void> reorderTasks(int oldIndex, int newIndex) async {
-    if (newIndex > oldIndex) newIndex--;
     final item = _tasks.removeAt(oldIndex);
     _tasks.insert(newIndex, item);
     for (var i = 0; i < _tasks.length; i++) {

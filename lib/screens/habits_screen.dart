@@ -23,7 +23,7 @@ class HabitsScreen extends StatelessWidget {
     return ReorderableListView.builder(
       padding: const EdgeInsets.only(top: 8, bottom: 88),
       buildDefaultDragHandles: false,
-      onReorder: context.read<AppProvider>().reorderHabits,
+      onReorderItem: context.read<AppProvider>().reorderHabits,
       itemCount: habitos.length,
       itemBuilder: (ctx, i) => HabitTile(
         key: ValueKey(habitos[i].id),

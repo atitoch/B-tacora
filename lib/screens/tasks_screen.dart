@@ -25,7 +25,7 @@ class TasksScreen extends StatelessWidget {
               : ReorderableListView.builder(
                   padding: const EdgeInsets.only(top: 8, bottom: 8),
                   buildDefaultDragHandles: false,
-                  onReorder: context.read<AppProvider>().reorderTasks,
+                  onReorderItem: context.read<AppProvider>().reorderTasks,
                   itemCount: tasks.length,
                   itemBuilder: (ctx, i) => TaskTile(
                     key: ValueKey(tasks[i].id),
