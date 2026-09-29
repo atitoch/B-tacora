@@ -40,6 +40,7 @@ class TaskTile extends StatelessWidget {
     final ctrl = TextEditingController(text: task.nombre);
     Prioridad selectedPrioridad = task.prioridad;
     TimeOfDay? selectedHora = task.horaObjetivo;
+    bool selectedPersistente = task.persistente;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -128,6 +129,15 @@ class TaskTile extends StatelessWidget {
                           ),
                     ),
                   ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Mantener hasta completarla'),
+                  subtitle: const Text(
+                      'Aparece cada día siguiente mientras siga pendiente'),
+                  value: selectedPersistente,
+                  onChanged: (v) => setModal(() => selectedPersistente = v),
+                ),
               ],
             ),
           ),
@@ -152,13 +162,18 @@ class TaskTile extends StatelessWidget {
       final nombreCambiado = nombre.isNotEmpty && nombre != task.nombre;
       final prioridadCambiada = selectedPrioridad != task.prioridad;
       final horaCambiada = selectedHora != task.horaObjetivo;
-      if (nombreCambiado || prioridadCambiada || horaCambiada) {
+      final persistenteCambiado = selectedPersistente != task.persistente;
+      if (nombreCambiado ||
+          prioridadCambiada ||
+          horaCambiada ||
+          persistenteCambiado) {
         await provider.editTask(
           task,
           nombre: nombreCambiado ? nombre : null,
           prioridad: prioridadCambiada ? selectedPrioridad : null,
           hora: selectedHora,
           clearHora: selectedHora == null,
+          persistente: persistenteCambiado ? selectedPersistente : null,
         );
       }
     }
@@ -196,6 +211,12 @@ class TaskTile extends StatelessWidget {
     final provider = context.read<AppProvider>();
     final theme = Theme.of(context);
     final dotColor = _priorityColor(task.prioridad);
+    final dia = context.select<AppProvider, DateTime>((p) => p.selectedDate);
+    // Estado visto desde el día seleccionado (una persistente completada más
+    // tarde seguía pendiente ese día).
+    final completada = task.completadaEn(dia);
+    final diasArrastrada = task.diasArrastrada(dia);
+    final mutedColor = theme.colorScheme.onSurface.withValues(alpha: 0.5);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -203,19 +224,19 @@ class TaskTile extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: task.completada
+          color: completada
               ? theme.colorScheme.primary.withValues(alpha: 0.2)
               : theme.colorScheme.outline.withValues(alpha: 0.15),
         ),
       ),
-      color: task.completada
+      color: completada
           ? theme.colorScheme.primaryContainer.withValues(alpha: 0.2)
           : null,
       child: ListTile(
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
         leading: Checkbox(
-          value: task.completada,
+          value: completada,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
           onChanged: (_) => provider.toggleTask(task),
@@ -228,7 +249,7 @@ class TaskTile extends StatelessWidget {
                 height: 8,
                 margin: const EdgeInsets.only(right: 6),
                 decoration: BoxDecoration(
-                  color: task.completada
+                  color: completada
                       ? dotColor.withValues(alpha: 0.4)
                       : dotColor,
                   shape: BoxShape.circle,
@@ -241,8 +262,8 @@ class TaskTile extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: FontWeight.w400,
                   decoration:
-                      task.completada ? TextDecoration.lineThrough : null,
-                  color: task.completada
+                      completada ? TextDecoration.lineThrough : null,
+                  color: completada
                       ? theme.colorScheme.onSurface.withValues(alpha: 0.45)
                       : null,
                 ),
@@ -250,27 +271,45 @@ class TaskTile extends StatelessWidget {
             ),
           ],
         ),
-        subtitle: task.horaObjetivo != null
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
+        subtitle: (task.horaObjetivo != null || diasArrastrada > 0)
+            ? Wrap(
+                spacing: 10,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Icon(
-                    // Pendiente con hora → hay recordatorio activo;
-                    // completada → solo la hora, sin recordatorio.
-                    task.completada
-                        ? Icons.access_time
-                        : Icons.notifications_active_outlined,
-                    size: 13,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    task.horaObjetivo!.format(context),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  if (task.horaObjetivo != null)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          // Pendiente con hora → hay recordatorio activo;
+                          // completada → solo la hora, sin recordatorio.
+                          completada
+                              ? Icons.access_time
+                              : Icons.notifications_active_outlined,
+                          size: 13,
+                          color: mutedColor,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          task.horaObjetivo!.format(context),
+                          style: TextStyle(fontSize: 12, color: mutedColor),
+                        ),
+                      ],
                     ),
-                  ),
+                  if (diasArrastrada > 0)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.event_repeat, size: 13, color: mutedColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          diasArrastrada == 1
+                              ? 'Desde ayer'
+                              : 'Desde hace $diasArrastrada días',
+                          style: TextStyle(fontSize: 12, color: mutedColor),
+                        ),
+                      ],
+                    ),
                 ],
               )
             : null,

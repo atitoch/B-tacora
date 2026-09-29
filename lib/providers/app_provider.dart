@@ -250,9 +250,17 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addTask(String nombre, {TimeOfDay? horaObjetivo}) async {
-    final t =
-        Task(nombre: nombre, fecha: _selectedDate, horaObjetivo: horaObjetivo);
+  Future<void> addTask(
+    String nombre, {
+    TimeOfDay? horaObjetivo,
+    bool persistente = true,
+  }) async {
+    final t = Task(
+      nombre: nombre,
+      fecha: _selectedDate,
+      horaObjetivo: horaObjetivo,
+      persistente: persistente,
+    );
     final id = await _db.insertTask(t);
     final saved = t.copyWith(id: id);
     _tasks.add(saved);
@@ -264,8 +272,13 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Alterna la tarea según su estado en el día seleccionado. Completar registra
+  /// ese día como fecha de completado (una persistente deja de arrastrarse a los
+  /// días siguientes); desmarcar la vuelve a dejar pendiente.
   Future<void> toggleTask(Task task) async {
-    final updated = task.copyWith(completada: !task.completada);
+    final updated = task.completadaEn(_selectedDate)
+        ? task.copyWith(completada: false, clearFechaCompletada: true)
+        : task.copyWith(completada: true, fechaCompletada: _selectedDate);
     await _db.updateTask(updated);
     final idx = _tasks.indexWhere((t) => t.id == task.id);
     if (idx != -1) _tasks[idx] = updated;
@@ -289,16 +302,23 @@ class AppProvider extends ChangeNotifier {
     Prioridad? prioridad,
     TimeOfDay? hora,
     bool clearHora = false,
+    bool? persistente,
   }) async {
     final updated = task.copyWith(
       nombre: nombre,
       prioridad: prioridad,
       horaObjetivo: hora,
       clearHora: clearHora,
+      persistente: persistente,
     );
     await _db.updateTask(updated);
-    final idx = _tasks.indexWhere((t) => t.id == task.id);
-    if (idx != -1) _tasks[idx] = updated;
+    // Cambiar la persistencia puede meter o sacar la tarea del día visible.
+    if (persistente != null && persistente != task.persistente) {
+      _tasks = await _db.getTasksForDate(_selectedDate);
+    } else {
+      final idx = _tasks.indexWhere((t) => t.id == task.id);
+      if (idx != -1) _tasks[idx] = updated;
+    }
     // scheduleTaskNotification programa, reprograma o cancela según corresponda
     // (sin hora, completada o instante pasado → cancela).
     try {

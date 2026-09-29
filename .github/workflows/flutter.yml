@@ -1,0 +1,27 @@
+name: Flutter CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  analyze-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Instalar dependencias
+        run: flutter pub get
+
+      # Los "info" (p. ej. APIs deprecadas) no bloquean; errores y warnings sí.
+      - name: Analizar
+        run: flutter analyze --no-fatal-infos
+
+      - name: Tests
+        run: flutter test

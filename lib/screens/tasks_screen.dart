@@ -17,7 +17,7 @@ class TasksScreen extends StatelessWidget {
           child: tasks.isEmpty
               ? const Center(
                   child: Text(
-                    'Sin tareas. Agrega lo que quieras hacer hoy.',
+                    'Sin tareas. Agrega lo que quieras hacer hoy.\nLas pendientes se mantienen hasta completarlas.',
                     style: TextStyle(color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
@@ -49,6 +49,8 @@ class _AddTaskBarState extends State<_AddTaskBar> {
   final _ctrl = TextEditingController();
   final _focus = FocusNode();
   TimeOfDay? _hora;
+  // Por defecto las tareas nuevas se mantienen hasta completarse.
+  bool _persistente = true;
 
   @override
   void dispose() {
@@ -73,7 +75,9 @@ class _AddTaskBarState extends State<_AddTaskBar> {
     setState(() => _hora = null);
     _focus.requestFocus();
     try {
-      await context.read<AppProvider>().addTask(text, horaObjetivo: hora);
+      await context
+          .read<AppProvider>()
+          .addTask(text, horaObjetivo: hora, persistente: _persistente);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -139,6 +143,16 @@ class _AddTaskBarState extends State<_AddTaskBar> {
                 ),
               ),
               const SizedBox(width: 4),
+              IconButton(
+                onPressed: () => setState(() => _persistente = !_persistente),
+                tooltip: _persistente
+                    ? 'Se mantiene hasta completarla'
+                    : 'Solo para este día',
+                icon: Icon(
+                  _persistente ? Icons.event_repeat : Icons.today_outlined,
+                  color: _persistente ? theme.colorScheme.primary : null,
+                ),
+              ),
               IconButton(
                 onPressed: _pickTime,
                 tooltip: 'Hora y recordatorio',
