@@ -24,7 +24,7 @@ class DatabaseService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'btacora.db'),
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -55,6 +55,16 @@ class DatabaseService {
       // histórica aunque luego se edite el hábito.
       await db.execute('ALTER TABLE habit_logs ADD COLUMN hora_h INTEGER');
       await db.execute('ALTER TABLE habit_logs ADD COLUMN hora_m INTEGER');
+    }
+    if (oldVersion < 5) {
+      // Tareas persistentes: se arrastran a días siguientes hasta completarse.
+      // Las tareas existentes quedan como NO persistentes para no inundar el
+      // día de hoy con pendientes antiguas.
+      await db.execute(
+          'ALTER TABLE tasks ADD COLUMN persistente INTEGER NOT NULL DEFAULT 0');
+      await db.execute('ALTER TABLE tasks ADD COLUMN fecha_completada TEXT');
+      await db.execute(
+          'UPDATE tasks SET fecha_completada = fecha WHERE completada = 1');
     }
   }
 
@@ -96,7 +106,9 @@ class DatabaseService {
         prioridad INTEGER NOT NULL DEFAULT 0,
         orden INTEGER NOT NULL DEFAULT 0,
         hora_h INTEGER,
-        hora_m INTEGER
+        hora_m INTEGER,
+        persistente INTEGER NOT NULL DEFAULT 0,
+        fecha_completada TEXT
       )
     ''');
 
@@ -245,25 +257,32 @@ class DatabaseService {
 
   // ─── Tasks ───────────────────────────────────────────────────────────────
 
+  /// Tareas visibles en [fecha]: las creadas ese día, más las persistentes de
+  /// días anteriores que seguían pendientes ese día (pendientes todavía, o
+  /// completadas en [fecha] o después).
   Future<List<Task>> getTasksForDate(DateTime fecha) async {
     final d = await db;
+    final key = du.dateKey(fecha);
     final rows = await d.query(
       'tasks',
-      where: 'fecha = ?',
-      whereArgs: [du.dateKey(fecha)],
+      where: 'fecha = ? OR (persistente = 1 AND fecha < ? AND '
+          '(completada = 0 OR fecha_completada IS NULL OR fecha_completada >= ?))',
+      whereArgs: [key, key, key],
       orderBy: 'orden ASC, id ASC',
     );
     return rows.map(Task.fromMap).toList();
   }
 
-  /// Tareas con hora objetivo, pendientes y con fecha de hoy en adelante.
+  /// Tareas con hora objetivo y pendientes: las de hoy en adelante y las
+  /// persistentes de días anteriores (que siguen recordándose cada día).
   /// Usado al iniciar la app para (re)programar sus notificaciones.
   Future<List<Task>> getUpcomingTasksWithTime() async {
     final d = await db;
     final hoy = du.dateKey(DateTime.now());
     final rows = await d.query(
       'tasks',
-      where: 'fecha >= ? AND hora_h IS NOT NULL AND completada = 0',
+      where: '(fecha >= ? OR persistente = 1) AND hora_h IS NOT NULL '
+          'AND completada = 0',
       whereArgs: [hoy],
     );
     return rows.map(Task.fromMap).toList();

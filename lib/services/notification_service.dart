@@ -212,8 +212,9 @@ class NotificationService {
 
   // ─── Tareas ──────────────────────────────────────────────────────────────
 
-  /// Programa una notificación única para una tarea con hora objetivo.
-  /// Si la tarea no tiene hora, está completada o el instante ya pasó, cancela.
+  /// Programa el recordatorio de una tarea con hora objetivo: único para tareas
+  /// normales, diario para las persistentes. Si la tarea no tiene hora, está
+  /// completada o (siendo normal) el instante ya pasó, cancela.
   Future<void> scheduleTaskNotification(Task task) async {
     if (task.id == null) return;
 
@@ -223,7 +224,7 @@ class NotificationService {
     }
 
     final now = tz.TZDateTime.now(tz.local);
-    final scheduled = tz.TZDateTime(
+    var scheduled = tz.TZDateTime(
       tz.local,
       task.fecha.year,
       task.fecha.month,
@@ -232,8 +233,16 @@ class NotificationService {
       task.horaObjetivo!.minute,
     ).subtract(Duration(minutes: anticipacionMinutos));
 
-    // Notificación de una sola vez: si ya pasó, no programar.
-    if (scheduled.isBefore(now.add(const Duration(seconds: 5)))) {
+    final limite = now.add(const Duration(seconds: 5));
+    if (task.persistente) {
+      // Persistente: se recuerda cada día a la misma hora hasta completarse.
+      // Avanzar al primer instante futuro a partir de su fecha original.
+      while (scheduled.isBefore(limite)) {
+        scheduled = tz.TZDateTime(tz.local, scheduled.year, scheduled.month,
+            scheduled.day + 1, scheduled.hour, scheduled.minute);
+      }
+    } else if (scheduled.isBefore(limite)) {
+      // Notificación de una sola vez: si ya pasó, no programar.
       await cancelTaskNotification(task.id!);
       return;
     }
@@ -256,7 +265,10 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
-      // Sin matchDateTimeComponents → notificación única.
+      // Persistente → se repite diario (se cancela al completarla);
+      // si no, sin matchDateTimeComponents → notificación única.
+      matchDateTimeComponents:
+          task.persistente ? DateTimeComponents.time : null,
     );
   }
 
